@@ -1,0 +1,8 @@
+.DS_Store
+node_modules
+dist
+.env
+.env.*
+# dados locais do app (cache de datas, vínculos, turmas ocultas)
+app/data/
+!.env.example
