@@ -35,6 +35,24 @@ function argsJs(s) {
   return out;
 }
 
+// Form urlencoded; listas viram campos repetidos (ex.: idsparciais[]=a&idsparciais[]=b), como o ExtJS faz
+function codificarForm(form) {
+  const u = new URLSearchParams();
+  for (const [k, v] of Object.entries(form)) {
+    if (Array.isArray(v)) v.forEach((x) => u.append(k, x));
+    else if (v !== undefined) u.append(k, v ?? '');
+  }
+  return u;
+}
+
+// Árvore de campos do plano → lista plana { campo (código do modelo), codigo, ordem, descricao, tipo, conteudo }
+function achatar(nos = []) {
+  return nos.flatMap((n) => [
+    { campo: n.campo ?? n.codigo, codigo: n.codigo, ordem: n.ordem, descricao: n.descricao, tipo: n.tipo, conteudo: n.conteudo ?? '' },
+    ...achatar(n.filhos),
+  ]);
+}
+
 // A página do diário embute os dias letivos: DiarioClasse.aulasDiario = Ext.decode('[...]');
 function lerAulas(html) {
   const m = html.match(/DiarioClasse\.aulasDiario\s*=\s*Ext\.decode\('((?:[^'\\]|\\.)*)'\)/);
@@ -67,12 +85,14 @@ export class Portal {
 
   async #req(url, { method = 'GET', form, ajax = false, referer } = {}) {
     const headers = { 'User-Agent': UA, Cookie: [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ') };
+    // navegação de página: mesmos cabeçalhos de um navegador (o portal decide o formato da resposta pela "cara" do pedido)
+    if (!ajax && method === 'GET') Object.assign(headers, { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'pt-BR,pt;q=0.9' });
     const multipart = form instanceof FormData;
     if (form && !multipart) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
     if (ajax) headers['X-Requested-With'] = 'XMLHttpRequest';
     if (method === 'POST') headers.Origin = ORIGEM;
     if (referer) headers.Referer = referer;
-    const res = await fetch(url, { method, headers, body: multipart ? form : form ? new URLSearchParams(form) : undefined, redirect: 'manual' });
+    const res = await fetch(url, { method, headers, body: multipart ? form : form ? codificarForm(form) : undefined, redirect: 'manual' });
     for (const c of res.headers.getSetCookie()) {
       const kv = c.split(';')[0];
       const i = kv.indexOf('=');
@@ -206,6 +226,177 @@ export class Portal {
       });
       return { salvo: !!r?.salvo, relatorio: r?.relatorio ?? null };
     });
+  }
+
+  // ---------- Plano de ensino (planoensino.php5) ----------
+  async #plano(metodo, form = {}) {
+    const r = await this.#req(BASE + 'planoensino.php5', { method: 'POST', ajax: true, referer: BASE + 'planoensino.php5', form: { 'ViewPlanoEnsinoXmlXsl[method]': metodo, asJSON: 'true', ...form } });
+    if (r.location && /login/.test(r.location)) throw new SessaoExpirada();
+    let j;
+    try { j = JSON.parse(r.text); } catch { throw new Error(`${metodo}: ${(r.text.match(/<mensagem>([^<]*)/) || [])[1] || 'resposta inesperada'}`); }
+    if (j.success === false) throw new Error(`${metodo}: ${j.errormsg || 'falhou'}`);
+    return j.data;
+  }
+
+  // Abre a tela do plano da turma (confere a turma) e devolve o que a página embute
+  async #abrirPlano(t) {
+    await this.abrirTurma(t); // confere codigoProfessorTurma e reabre a "página da turma"
+    // O portal às vezes devolve, no GET da página, o JSON da última chamada AJAX do plano.
+    // Tenta alguns caminhos (todos funcionam num navegador) até vir a página de verdade.
+    const urlTurma = `${BASE}turmas.php5?anos=${encodeURIComponent(enc(t.ano))}&semestre=-2&curso=-2&codigoProfessorTurma=${encodeURIComponent(enc(t.cpt))}`;
+    const tentativas = [
+      () => this.#req(BASE + 'planoensino.php5', { referer: urlTurma }),
+      async () => { await this.#req(urlTurma); return this.#req(BASE + 'planoensino.php5?asJSON=false', { referer: urlTurma }); },
+      async () => { await this.#req(urlTurma); return this.#req(BASE + 'planoensino.php5?ViewPlanoEnsinoXmlXsl%5Bmethod%5D=', { referer: urlTurma }); },
+    ];
+    let pag;
+    const vistos = [];
+    for (const tentar of tentativas) {
+      pag = await tentar();
+      // redirecionamento: segue (só dentro do portal, nunca para o login)
+      for (let i = 0; pag.location && i < 3; i++) {
+        const destino = new URL(pag.location, BASE + 'planoensino.php5');
+        if (destino.origin !== ORIGEM || /login/.test(destino.pathname)) throw new SessaoExpirada();
+        pag = await this.#req(destino.href, { referer: urlTurma });
+      }
+      if (/PlanoEnsino\.codigo\s*=/.test(pag.text)) break;
+      vistos.push(/^\s*\{/.test(pag.text) ? `JSON(${Object.keys((() => { try { return JSON.parse(pag.text); } catch { return {}; } })()).join(',')}; ${(pag.text.match(/"descricao":"([^"]{0,40})/) || [])[1] || ''})` : `${pag.status}/${pag.text.length}b`);
+    }
+    if (vistos.length) console.error(`[plano] respostas fora do esperado antes da página: ${vistos.join(' | ')}`);
+    const v = (k) => (pag.text.match(new RegExp(`PlanoEnsino\\.${k}\\s*=\\s*'?([^';]*)'?;`)) || [])[1];
+    if (v('codigo') === undefined) {
+      const tipo = pag.location ? `redirecionou para ${pag.location.replace(/\?.*$/, '')}` : /^\s*\{/.test(pag.text) ? 'veio JSON' : /<erro>/.test(pag.text) ? `erro do portal: ${(pag.text.match(/<mensagem>([^<]*)/) || [])[1]}` : `HTML sem dados do plano (${pag.text.length} bytes)`;
+      throw new Error(`Tela do plano de ensino não abriu como esperado (HTTP ${pag.status}, ${tipo}; tentativas: ${vistos.join(' | ')}). Nada foi enviado.`);
+    }
+    return { codigo: v('codigo') || null, situacao: Number(v('situacao') || 0), aprovacaoCoord: v('aprovacaoPlanoPeloCoord') === 'true', acessoCoordenador: v('acessoCoordenador') === 'true' };
+  }
+
+  // Plano da turma: situação + campos preenchidos (se existir)
+  lerPlano(t) {
+    return this.serial(async () => {
+      const p = await this.#abrirPlano(t);
+      const campos = p.codigo ? achatar(await this.#plano('getTreeCamposPlano', { codigoPlanoEnsino: p.codigo })) : [];
+      return { ...p, campos };
+    });
+  }
+
+  // Modelos disponíveis + campos de um modelo (precisa de uma turma aberta na sessão)
+  modelosPlano(t, codigoModelo) {
+    return this.serial(async () => {
+      await this.#abrirPlano(t);
+      const modelos = (await this.#plano('getModelos')).filter((m) => m.ativo == 1).map((m) => ({ codigo: m.codigo, descricao: m.descricao }));
+      const campos = codigoModelo ? achatar(await this.#plano('getTreeCamposModelo', { codigoModelo })) : [];
+      return { modelos, campos };
+    });
+  }
+
+  // Cria o plano (só se a turma ainda não tiver). acao: 1 = salvar (em elaboração), 2 = salvar e enviar para aprovação.
+  // conteudos: { [codigoCampoDoModelo]: texto }
+  criarPlano(t, codigoModelo, conteudos, acao) {
+    return this.serial(async () => {
+      const p = await this.#abrirPlano(t);
+      if (p.codigo) return { pulada: true, situacao: p.situacao };
+      const campos = achatar(await this.#plano('getTreeCamposModelo', { codigoModelo }));
+      const form = { modelo: String(codigoModelo), codigo: '' };
+      for (const c of campos) {
+        form[`campos[${c.campo}][campo]`] = String(c.campo);
+        form[`campos[${c.campo}][ordem]`] = c.ordem;
+        if (c.tipo === 'U') {
+          const texto = String(conteudos[c.campo] ?? '').trim();
+          if (!texto) throw new Error(`Campo "${c.ordem} ${c.descricao}" está vazio. Nada foi enviado.`);
+          form[`campos[${c.campo}][conteudo]`] = texto;
+        }
+      }
+      const situacao = acao === 2 ? (p.aprovacaoCoord ? 2 : 4) : 1;
+      await this.#plano('savePlanoEnsino', { ...form, situacao: String(situacao), acessoCoordenador: String(p.acessoCoordenador), updateClicked: 'false', acaoSalvar: String(acao) });
+      return { pulada: false };
+    });
+  }
+
+  // ---------- Digitação de notas (digitarnotas.php5) ----------
+  // Chamadas de carga levam form_key = sha1(urlEncode(valores na ordem)) — createExtAjaxFormKey do portal
+  async #notasPost(params, comChave = true) {
+    const form = comChave ? { ...params, form_key: formKey(...Object.values(params)) } : params;
+    const r = await this.#req(BASE + 'digitarnotas.php5', { method: 'POST', ajax: true, form, referer: BASE + 'digitarnotas.php5' });
+    if (r.location && /login/.test(r.location)) throw new SessaoExpirada();
+    let j;
+    try { j = JSON.parse(r.text); } catch { throw new Error(`${params['ViewDigitarNotasXmlXsl[method]']}: ${(r.text.match(/<mensagem>([^<]*)/) || [])[1] || 'resposta inesperada'}`); }
+    if (j && j.success === false) throw new Error(`${params['ViewDigitarNotasXmlXsl[method]']}: ${j.errormsg || j.data?.message || 'falhou'}`);
+    return j;
+  }
+
+  // Abre a digitação da turma: página → etapas (getNextStep) → parâmetros → estrutura → notas
+  async #abrirNotas(t) {
+    const { url: urlDiario } = await this.abrirTurma(t);
+    const pag = await this.#req(BASE + 'digitarnotas.php5', { referer: urlDiario });
+    const modulo = (pag.text.match(/DigitarNotas\.emEdicao\s*=\s*'([^']*)'/) || [])[1];
+    const controle = (pag.text.match(/DigitarNotas\.controleDigitacao\s*=\s*'([^']*)'/) || [])[1];
+    if (!modulo || !controle) throw new Error('Tela de digitação de notas não abriu como esperado. Nada foi enviado.');
+    const M = 'ViewDigitarNotasXmlXsl[method]';
+    let step = 'e00';
+    for (let i = 0; step && i < 30; i++) {
+      const r = await this.#notasPost({ [M]: 'getNextStep', step, controleDigitacao: controle, modulo });
+      step = r.data?.proximaEtapa?.id ?? null;
+    }
+    const info = await this.#notasPost({ [M]: 'getInfoDigitacao', modulo });
+    if (String(info.codigoProfessorTurma) !== String(t.cpt)) throw new Error(`Digitação abriu outra turma/disciplina em vez de ${t.turma}. Nada foi enviado.`);
+    const estrutura = await this.#notasPost({ [M]: 'getAvaliacoesModulo', controleDigitacao: controle, modulo });
+    const n = await this.#req(`${BASE}digitarnotas.php5?ViewDigitarNotasXmlXsl[method]=getNotasTurma&modulo=${modulo}&codigoEmpresa=null&codigoUnidade=null`, { ajax: true });
+    let rows;
+    try { rows = JSON.parse(n.text).rows ?? []; } catch { throw new Error('getNotasTurma: resposta inesperada'); }
+    return { modulo, controle, info, estrutura, rows };
+  }
+
+  lerNotas(t) {
+    return this.serial(() => this.#abrirNotas(t));
+  }
+
+  // aplicar(estado) → { rows alterados } ; grava todos os alunos (como a tela do portal) e pede o cálculo
+  salvarNotas(t, aplicar) {
+    return this.serial(async () => {
+      const e = await this.#abrirNotas(t);
+      const rows = aplicar(e);
+      if (!rows) return { semMudanca: true };
+      const m = e.modulo;
+      const enviar = (e.estrutura.parciais ?? []).flatMap((p) => [p.idParcial, ...(p.subParciais ?? []).map((s) => s.idParcial)]);
+      const ALUNOS = rows.map((aluno) => {
+        const nodo = {
+          NOTAMODULO: { CODIGOAVALIACAOITEM: aluno['CDN_' + m], VALORAVALIACAO: aluno['NM_' + m], CODIGODISPENSA: aluno['DM_' + m] },
+          FALTAMODULO: { CODIGOAVALIACAOITEM: aluno['CDF_' + m], VALORAVALIACAO: aluno['FM_' + m], CODIGODISPENSA: aluno['DM_' + m] },
+          PREVENTIVA: { CODIGOAVALIACAOITEM: aluno['CDR_' + m], VALORAVALIACAO: aluno['RP_' + m], CODIGODISPENSA: aluno['DM_' + m], NAOCOMPARECEU: aluno['RP_' + m + '_NC'] },
+          MEDIAMODULO: { CODIGOAVALIACAOITEM: aluno['CDM_' + m], CODIGODISPENSA: aluno['DM_' + m] },
+          PARCIAIS: [],
+        };
+        // dispensa do indicador vale para as avaliações dele (mesma regra da tela)
+        let pai = null;
+        let paiDisp = null;
+        for (const p of enviar) {
+          const [raiz, resto] = String(p).split('_');
+          if (pai !== raiz) { pai = null; paiDisp = null; }
+          if (!resto) { pai = p; paiDisp = aluno['D_' + p]; }
+          if (pai === raiz && paiDisp != '1') aluno['D_' + p] = paiDisp;
+          nodo.PARCIAIS.push({ CODIGOAVALIACAOITEM: aluno['CD_' + p], VALORAVALIACAO: aluno[p], CODIGODISPENSA: aluno['D_' + p], IDPARCIAL: p });
+        }
+        return nodo;
+      });
+      const r = await this.#notasPost({
+        'ViewDigitarNotasXmlXsl[method]': 'salvarNotas', modulo: m, codigoControleDigitacao: e.controle,
+        aulasDadas: parseInt(e.info.aulasDadas, 10), decimais: e.info.numeroDecimais, formaAvaliacao: e.info.formaAvaliacao,
+        notas: JSON.stringify({ ALUNOS }), 'idsparciais[]': enviar, gvroute: await this.#gvroute(),
+      }, false);
+      await this.#notasPost({ 'ViewDigitarNotasXmlXsl[method]': 'calcularNotas' }, false);
+      return { salvo: true, resposta: r?.success };
+    });
+  }
+
+  // constante "gvroute" que a tela manda no salvarNotas (lida do JS do portal)
+  async #gvroute() {
+    if (!this._gvroute) {
+      const js = await this.#req(BASE + 'presenters/DigitarNotas/DigitarNotas.js');
+      this._gvroute = (js.text.match(/gvroute'\s*:\s*'(\w+)'/) || [])[1];
+      if (!this._gvroute) throw new Error('Não encontrei o gvroute no JS do portal. Nada foi enviado.');
+    }
+    return this._gvroute;
   }
 
   // "Atualizar resultado" do diário: recalcula frequência/faltas da turma

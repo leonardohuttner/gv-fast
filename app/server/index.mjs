@@ -8,6 +8,7 @@ import { Portal, SessaoExpirada } from './portal.mjs';
 import { listarSalas, criarSala, removerSala, agruparAutomatico, listarOcultas, ocultarTurmas } from './salas.mjs';
 import { cache, gravarDepois } from './cache.mjs';
 import { visao, montar, chaveIndicador } from './avaliacoes.mjs';
+import { visaoNotas, aplicarNotas } from './notas.mjs';
 
 const PORT = Number(process.env.PORT) || 5180;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -240,6 +241,14 @@ async function api(req, res, url) {
     await ocultarTurmas(cpts, ocultar);
     return enviar(res, 200, { ok: true });
   }
+  // Plano de uma turma qualquer (para reaproveitar textos)
+  const pt = url.pathname.match(/^\/api\/turmas\/(\d+)\/plano$/);
+  if (pt && req.method === 'GET') {
+    const t = (await todasTurmas()).find((x) => x.cpt === pt[1]);
+    if (!t) return enviar(res, 404, { erro: 'Turma não encontrada.' });
+    return enviar(res, 200, await portal.lerPlano(t));
+  }
+
   const rs = url.pathname.match(/^\/api\/turmas\/(\d+)\/resumo$/);
   if (rs && req.method === 'GET') {
     const t = (await todasTurmas()).find((x) => x.cpt === rs[1]);
@@ -247,7 +256,7 @@ async function api(req, res, url) {
     return enviar(res, 200, resumir(await aulasDaTurma(t)));
   }
 
-  const m = url.pathname.match(/^\/api\/salas\/([\w-]+)\/(aulas|chamada|observacoes|resultado|avaliacoes)$/);
+  const m = url.pathname.match(/^\/api\/salas\/([\w-]+)\/(aulas|chamada|observacoes|resultado|avaliacoes|plano|notas)$/);
   const sala = m && await acharSala(m[1]);
   if (m && !sala) return enviar(res, 404, { erro: 'Sala não encontrada.' });
 
@@ -346,6 +355,79 @@ async function api(req, res, url) {
         if (!ind?.avaliacoes.some((a) => String(a.sigla).trim().toLowerCase() === String(n.sigla).trim().toLowerCase())) divergencias.push(`${t.turma.trim()}: ${n.sigla} não aparece em ${n.indicador}`);
       }
       turmas.push({ cpt: t.cpt, turma: t.turma.trim(), sala: t.sala, periodo: t.periodo, ...v });
+    }
+    return enviar(res, 200, { feitas, divergencias, turmas });
+  }
+
+  // Plano de ensino: só CRIA em turmas sem plano (plano existente não pode ser alterado — aguarda aprovação)
+  if (m && m[2] === 'plano' && req.method === 'GET') {
+    const turmas = [];
+    for (const t of sala.turmas) turmas.push({ cpt: t.cpt, turma: t.turma.trim(), sala: t.sala, periodo: t.periodo, ...(await portal.lerPlano(t)) });
+    const modelo = url.searchParams.get('modelo');
+    const { modelos, campos } = await portal.modelosPlano(sala.turmas[0], modelo || null);
+    // texto sugerido para "Indicadores": a lista do currículo (a mesma das avaliações)
+    let indicadores = '';
+    try {
+      indicadores = visao(await portal.lerAvaliacao(sala.turmas[0])).indicadores.map((i, n) => `${n + 1}. ${i.descricao.replace(/\s+/g, ' ').trim()}`).join('\n');
+    } catch { /* turma sem indicadores no currículo */ }
+    return enviar(res, 200, { turmas, modelos, campos, indicadores });
+  }
+  if (m && m[2] === 'plano' && req.method === 'POST') {
+    const { modelo, acao = 1, conteudos = {} } = await lerJson(req);
+    if (!modelo || ![1, 2].includes(acao)) return enviar(res, 400, { erro: 'Modelo ou ação inválidos.' });
+    const feitas = [];
+    const puladas = [];
+    for (const t of sala.turmas) {
+      const r = await portal.criarPlano(t, modelo, conteudos, acao);
+      (r.pulada ? puladas : feitas).push(t.turma.trim());
+    }
+    // Conferência: relê e compara cada campo
+    const norm = (x) => String(x ?? '').replace(/\r\n/g, '\n').trim();
+    const divergencias = [];
+    const turmas = [];
+    for (const t of sala.turmas) {
+      const p = await portal.lerPlano(t);
+      if (feitas.includes(t.turma.trim())) {
+        if (!p.codigo) divergencias.push(`${t.turma.trim()}: plano não aparece no portal`);
+        for (const [campo, texto] of Object.entries(conteudos)) {
+          const c = p.campos.find((x) => String(x.campo) === String(campo));
+          if (c && norm(c.conteudo) !== norm(texto)) divergencias.push(`${t.turma.trim()}: campo ${c.ordem} ${c.descricao} diferente do enviado`);
+        }
+      }
+      turmas.push({ cpt: t.cpt, turma: t.turma.trim(), sala: t.sala, periodo: t.periodo, ...p });
+    }
+    return enviar(res, 200, { feitas, puladas, divergencias, turmas });
+  }
+
+  // Digitação de notas (conceito): avaliações, indicadores e menção de cada aluno, nas turmas da sala
+  if (m && m[2] === 'notas' && req.method === 'GET') {
+    const turmas = [];
+    for (const t of sala.turmas) turmas.push(visaoNotas(t, await portal.lerNotas(t)));
+    return enviar(res, 200, { turmas });
+  }
+  if (m && m[2] === 'notas' && req.method === 'POST') {
+    // alteracoes: [{ cpt, cod, valores: {id: conceito}, mencao }]
+    const { alteracoes = [] } = await lerJson(req);
+    if (!alteracoes.length) return enviar(res, 400, { erro: 'Nada para gravar.' });
+    const feitas = [];
+    for (const t of sala.turmas) {
+      const daTurma = alteracoes.filter((a) => String(a.cpt) === String(t.cpt));
+      if (!daTurma.length) continue;
+      const r = await portal.salvarNotas(t, (estado) => aplicarNotas(estado, daTurma));
+      feitas.push({ turma: t.turma.trim(), alunos: daTurma.length, semMudanca: !!r.semMudanca });
+    }
+    // Conferência: relê e compara cada valor enviado
+    const divergencias = [];
+    const turmas = [];
+    for (const t of sala.turmas) {
+      const v = visaoNotas(t, await portal.lerNotas(t));
+      for (const a of alteracoes.filter((x) => String(x.cpt) === String(t.cpt))) {
+        const al = v.alunos.find((x) => x.cod === String(a.cod));
+        if (!al) { divergencias.push(`${v.turma}: aluno nº ? não encontrado na releitura`); continue; }
+        for (const [id, val] of Object.entries(a.valores ?? {})) if ((al.valores[id] ?? '') !== val) divergencias.push(`${v.turma} · nº ${al.numero} · ${id}: marcado "${val}", gravado "${al.valores[id] ?? ''}"`);
+        if (a.mencao !== undefined && al.mencao !== a.mencao) divergencias.push(`${v.turma} · nº ${al.numero} · menção: marcada "${a.mencao}", gravada "${al.mencao}"`);
+      }
+      turmas.push(v);
     }
     return enviar(res, 200, { feitas, divergencias, turmas });
   }

@@ -30,5 +30,10 @@ export const api = {
   atualizarResultado: (sala) => chamar('POST', `/api/salas/${sala}/resultado`),
   avaliacoes: (sala) => chamar('GET', `/api/salas/${sala}/avaliacoes`),
   salvarAvaliacoes: (sala, novas, confirmar = []) => chamar('POST', `/api/salas/${sala}/avaliacoes`, { novas, confirmar }),
+  plano: (sala, modelo) => chamar('GET', `/api/salas/${sala}/plano${modelo ? '?modelo=' + modelo : ''}`),
+  criarPlano: (sala, modelo, acao, conteudos) => chamar('POST', `/api/salas/${sala}/plano`, { modelo, acao, conteudos }),
+  planoTurma: (cpt) => chamar('GET', `/api/turmas/${cpt}/plano`),
+  notas: (sala) => chamar('GET', `/api/salas/${sala}/notas`),
+  salvarNotas: (sala, alteracoes) => chamar('POST', `/api/salas/${sala}/notas`, { alteracoes }),
   salvarChamada: (sala, data, alunos) => chamar('POST', `/api/salas/${sala}/chamada`, { data, alunos }),
 };

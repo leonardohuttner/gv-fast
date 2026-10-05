@@ -55,6 +55,42 @@ Toda tela de turma (diário, avaliações, notas) usa a **última turma aberta**
 - Observação ("caderno"): **um texto por turma + módulo** (não por dia). `getObservacaoDiarioClasse` / `salvarObservacaoDiarioClasse` com `numeroModulo`, `codigoUsuario` (+ `observacao`).
 - `atualizaResultado` (sem parâmetros): recalcula frequência/faltas.
 
+### Plano de ensino (`planoensino.php5`, mapeado — NADA gravado)
+- Depende da turma da sessão. JS: `presenters/PlanoEnsino/document.view.PlanoEnsino.js` (+ `lib/shared/js/PlanoEnsinoLib.js` só templates).
+- Página embute `PlanoEnsino.codigo` (vazio = sem plano), `PlanoEnsino.situacao`, `PlanoEnsino.aprovacaoPlanoPeloCoord`, permissões (copiar, enviar, excluir).
+- Situação: 0 não criado, 1 em elaboração, 2 aguardando aprovação, 3 aguardando revisão, 4 aprovado.
+- Todas as chamadas: `POST planoensino.php5` com `ViewPlanoEnsinoXmlXsl[method]=<m>`, `asJSON=true`:
+  - `getModelos` → modelos `[{codigo, descricao, ativo}]` (ex.: 10 = PTD Plano de Trabalho Docente, 11 = PTD PI Planejamento Integrado do Curso).
+  - `getTreeCamposModelo` (`codigoModelo`) → árvore de campos `{codigo, descricao, ordem, tipo, filhos}`.
+    Tipos: R resumo (agrupa), U texto do professor (obrigatório), E/B/C/P só leitura vindos da base (`getValorCampoModelo`, `tipoCampo`).
+    PTD (10): 1.1 Indicadores da UC (22), 1.2 Elementos da Competência (23), 1.3 Situações de Aprendizagem (24), 1.4 Recursos Didáticos (25), 1.5 Avaliação (26), 1.6 Contribuições da UC para o PI (27) — todos U.
+    PTD PI (11): Indicadores, Tema Gerador, Desafios, Contribuições de cada UC para o PI, Problematização, Desenvolvimento, Síntese — todos U.
+  - `getTreeCamposPlano` (`codigoPlanoEnsino`) → plano existente: mesmos campos com `codigo` (do plano), `campo` (do modelo), `conteudo`.
+  - `getDadosCabecalho`, `getDadosCurriculo` (`codigoPlanoEnsino`), `getHistorico` / `getHistoricoByTipo`, `efetuaExclusaoPlanoEnsino`.
+  - **Salvar**: `savePlanoEnsino` com os valores do form + `situacao`, `acessoCoordenador`, `updateClicked`, `acaoSalvar` (1 = salvar → situação 1; 2 = salvar e enviar → 2 se precisa aprovação do coordenador, senão 4).
+    Form de plano novo: `modelo=<cod>`, `codigo=`, e por campo `campos[<campo>][campo]`, `campos[<campo>][ordem]` (ex. "1.1"), `campos[<campo>][conteudo]`.
+    Plano existente: chave é o `codigo` do plano e o hidden vira `campos[<codigo>][codigo]`.
+  - **Copiar para outras turmas**: `getTurmasProfessor` (lista; veio vazia na turma testada) → `copiarPlanoTurma` com `turmas` = JSON `[codigoTurma…]`, `acaoSalvar=1`.
+- **Plano existente não pode ser alterado pelo professor** (aguarda aprovação) → o app só CRIA plano em turma sem plano; existentes ficam só leitura.
+- Quirk: sem cabeçalhos de navegador, o GET de `planoensino.php5` pode devolver o JSON da última chamada AJAX. **Resolvido mandando `Accept: text/html…` + `Referer` (página da turma)** em todo GET de página (`#req`); o app ainda tem 2 caminhos de reserva e confere `PlanoEnsino.codigo` no HTML.
+- No app: sub-aba "Plano de ensino" (`src/components/Plano.vue`), rotas `GET|POST /api/salas/:id/plano`, `GET /api/turmas/:cpt/plano` (copiar textos de outra turma); rascunho em localStorage.
+- Indicadores do PTD (1.1) são os mesmos do currículo usados em avaliações (`ajax_loadParciaisIndicadores`) → dá para preencher automático.
+
+### Digitação de notas (`digitarnotas.php5`, mapeado — NADA gravado)
+- Depende da turma da sessão. JS: `presenters/DigitarNotas/DigitarNotas.js` + `core/js/Formula.Base.js`.
+- Página embute `DigitarNotas.emEdicao` (módulo) e `DigitarNotas.controleDigitacao`.
+- Chamadas de carga levam **form_key** via `createExtAjaxFormKey`: `form_key = sha1(urlEncode(concat dos valores de hashParams, na ordem))`:
+  1. `getNextStep` (`step`, `controleDigitacao`, `modulo`) — começa em `step=e00` e segue `data.proximaEtapa.id` até vir `null`.
+  2. `getInfoDigitacao` (`modulo`) → parâmetros: `formaAvaliacao` ('C' conceito / 'N' nota), `conceitos.parcial` ([' ','A','NA','NC','PA']), `conceitos.modulo` ([' ','D','ND','SM']), `numeroDecimais`, `aulasDadas`, `cargaHoraria`, nomes de colunas…
+  3. `getAvaliacoesModulo` (`controleDigitacao`, `modulo`) → estrutura: parciais (indicadores) `P<cod>` e subparciais (avaliações) `<id>` com `compoe`/`compostaDe`, `descRed`, `modoCalculoSubparciais`.
+  4. `GET digitarnotas.php5?ViewDigitarNotasXmlXsl[method]=getNotasTurma&modulo=<m>&codigoEmpresa=null&codigoUnidade=null` → `rows[]` por aluno.
+- Campos por aluno: `<idParcial>` valor; `CD_<id>` código do item; `D_<id>`/`DJ_`/`DL_`/`DD_` dispensa; `NM_<mod>` menção (conceito do módulo), `CDN_`, `FM_<mod>` faltas, `CDF_`, `CDM_`, `DM_`; `RES` resultado; `EDT` editável; `DCS` situação do aluno; `NOM`/`MAT` (dados pessoais — nunca logar).
+- **Conceito sem fórmula (formaCalculo 5, idFormula vazio): o portal NÃO calcula** indicador nem menção — o professor preenche avaliação, indicador e menção.
+- Salvar: `salvarNotas` (sem form_key) com `modulo`, `codigoControleDigitacao`, `aulasDadas`, `decimais`, `formaAvaliacao`, `notas` = JSON `{ALUNOS:[{NOTAMODULO:{CODIGOAVALIACAOITEM,VALORAVALIACAO,CODIGODISPENSA}, FALTAMODULO:{…}, PREVENTIVA:{…,NAOCOMPARECEU}, MEDIAMODULO:{CODIGOAVALIACAOITEM,CODIGODISPENSA}, PARCIAIS:[{CODIGOAVALIACAOITEM,VALORAVALIACAO,CODIGODISPENSA,IDPARCIAL}]}]}` (todos os alunos), `idsparciais[]` (lista, na ordem de `estruturaParciais.enviar`), `gvroute` (constante do JS).
+  Depois: `calcularNotas` (sem parâmetros) → médias/resultados.
+- Regras do professor (o app aplica; o portal não calcula): indicador = conceito da(s) avaliação(ões) dele; **menção D só se todos os indicadores forem A**, senão ND. Não usa NC nem SM.
+- No app: sub-aba "Notas" (`src/components/Notas.vue`), `server/notas.mjs` (visão/regras/aplicação), rotas `GET|POST /api/salas/:id/notas`. Ainda não testado gravando.
+
 ### Configurar avaliações (`configuraravaliacoes.php5`)
 - JS: `presenters/EditarParciais/EditarParciais.js` + componente `Ext.gvux.ConfigAvaliacao.js`.
 - Página embute `Page.descricaoTurma`, `Page.tipoAvaliacaoTurma` (`'C'` = conceito), regras de base curricular.
@@ -70,7 +106,7 @@ Toda tela de turma (diário, avaliações, notas) usa a **última turma aberta**
 - Convenção do professor: 1 avaliação por indicador, "Trabalho N" / `tbN` (ou "Prova N" / `pvN`), em sequência.
 
 ### A mapear
-- Digitação de notas (`digitarnotas.php5`).
+- Plano de ensino: testar `savePlanoEnsino` e `copiarPlanoTurma` com o professor acompanhando.
 
 ## O app (`app/`)
 Vue 3 + Vite (front) + servidor Node sem framework (`app/server/`), um processo só, só em `127.0.0.1:5180`.

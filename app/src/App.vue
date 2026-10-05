@@ -7,10 +7,12 @@ import Turmas from './components/Turmas.vue';
 import Hoje from './components/Hoje.vue';
 import Dialogo from './components/Dialogo.vue';
 import Avaliacoes from './components/Avaliacoes.vue';
+import Plano from './components/Plano.vue';
+import Notas from './components/Notas.vue';
 
 const logado = ref(null);
 const tela = ref('hoje');      // hoje | turma | turmas
-const aba = ref('chamada');    // dentro da turma: chamada | avaliacoes
+const aba = ref('chamada');    // dentro da turma: chamada | avaliacoes | notas | plano
 const dataAbrir = ref(null);
 const salas = ref([]);
 const salaId = ref(null);
@@ -106,9 +108,13 @@ onMounted(async () => {
       <div class="abas">
         <button :class="{ ativa: aba === 'chamada' }" @click="aba = 'chamada'">Chamada</button>
         <button :class="{ ativa: aba === 'avaliacoes' }" @click="aba = 'avaliacoes'">Avaliações</button>
+        <button :class="{ ativa: aba === 'notas' }" @click="aba = 'notas'">Notas</button>
+        <button :class="{ ativa: aba === 'plano' }" @click="aba = 'plano'">Plano de ensino</button>
         <span v-if="sala.situacao?.estado === 'encerrada'" class="sub encerrada">turma encerrada</span>
       </div>
-      <Avaliacoes v-if="aba === 'avaliacoes'" :key="'av' + sala.id" :sala="sala" @expirou="logado = false" />
+      <Notas v-if="aba === 'notas'" :key="'nt' + sala.id" :sala="sala" @expirou="logado = false" />
+      <Plano v-else-if="aba === 'plano'" :key="'pl' + sala.id" :sala="sala" @expirou="logado = false" />
+      <Avaliacoes v-else-if="aba === 'avaliacoes'" :key="'av' + sala.id" :sala="sala" @expirou="logado = false" />
       <Chamada v-else :key="sala.id + (dataAbrir || '')" :sala="sala" :data-inicial="dataAbrir" @expirou="logado = false" />
     </template>
   </div>
