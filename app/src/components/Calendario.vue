@@ -6,6 +6,7 @@ const props = defineProps({
   aulas: { type: Array, required: true }, // [{ data: 'YYYY-MM-DD', situacao: 0|1|2, turno }]
   modelValue: { type: String, default: null },
   disabled: Boolean,
+  marcas: { type: Array, default: () => [] }, // dias dados sem conteúdo registrado
 });
 const emit = defineEmits(['update:modelValue']);
 
@@ -60,14 +61,14 @@ const contagem = computed(() => {
       <div v-for="s in SEMANA" :key="s" class="sem">{{ s }}</div>
       <template v-for="(c, i) in dias" :key="i">
         <div v-if="!c" />
-        <button v-else-if="c.aula" class="dia" :class="[SITUACAO[c.aula.situacao].cls, { sel: c.data === modelValue, hoje: c.data === hoje, futuro: c.data > hoje }]"
+        <button v-else-if="c.aula" class="dia" :class="[SITUACAO[c.aula.situacao].cls, { sel: c.data === modelValue, hoje: c.data === hoje, futuro: c.data > hoje, semconteudo: marcas.includes(c.data) }]"
                 :disabled="disabled" :title="`${SITUACAO[c.aula.situacao].nome}${c.aula.turno ? ' · ' + c.aula.turno : ''}`"
                 @click="emit('update:modelValue', c.data)">{{ c.d }}</button>
         <div v-else class="dia vazio" :class="{ hoje: c.data === hoje }">{{ c.d }}</div>
       </template>
     </div>
     <div class="leg sub">
-      <span><i class="pend" />pendente</span><span><i class="ok" />lançada</span><span><i class="canc" />cancelada</span>
+      <span><i class="pend" />pendente</span><span><i class="ok" />lançada</span><span><i class="canc" />cancelada</span><span v-if="marcas.length"><i class="ponto" />sem conteúdo</span>
     </div>
   </div>
 </template>
@@ -90,7 +91,10 @@ const contagem = computed(() => {
 .dia.futuro.pend { background: var(--card); border-style: dashed; font-weight: 400; }
 .dia.hoje { box-shadow: inset 0 -2px 0 var(--accent); }
 .dia.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
-.leg { display: flex; gap: 10px; justify-content: center; margin-top: 8px; }
+.dia { position: relative; }
+.dia.semconteudo::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.leg i.ponto { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); border: 0; }
+.leg { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
 .leg i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
 .leg i.pend { background: var(--warn-bg); border: 1px solid var(--warn); }
 .leg i.ok { background: var(--ok-bg); border: 1px solid var(--ok); }

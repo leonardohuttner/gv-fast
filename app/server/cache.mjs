@@ -14,6 +14,8 @@ export async function cache() {
     try { dados = JSON.parse(await readFile(ARQ, 'utf8')); } catch { dados = {}; }
     dados.turmas ??= {};
     dados.aulas ??= {};
+    dados.carga ??= {}; // carga horária por turma (cpt)
+    dados.programacao ??= {}; // por turma: [{ data, temRealizado }] — só se há texto, nunca o texto
   }
   return dados;
 }

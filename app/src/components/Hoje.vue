@@ -8,6 +8,7 @@ import Carregando from './Carregando.vue';
 const emit = defineEmits(['abrir', 'expirou']);
 
 const itens = ref([]);
+const semConteudo = ref([]); // aulas dadas sem conteúdo realizado, por sala
 const hoje = ref('');
 const atualizacao = ref(null);
 const erro = ref('');
@@ -34,6 +35,7 @@ async function carregar() {
   try {
     const r = await api.agenda();
     itens.value = r.itens;
+    semConteudo.value = r.semConteudo ?? [];
     hoje.value = r.hoje;
     atualizacao.value = r.atualizacao;
     carregou.value = true;
@@ -90,6 +92,17 @@ onUnmounted(() => clearTimeout(timer));
       </div>
     </div>
 
+    <div v-if="semConteudo.length" class="bloco conteudo">
+      <h2>Aulas sem conteúdo registrado <span class="n">{{ semConteudo.reduce((s, x) => s + x.datas.length, 0) }}</span></h2>
+      <div v-for="x in semConteudo" :key="x.salaId" class="item">
+        <button class="abrir" @click="emit('abrir', x.salaId, x.datas[0])">
+          <span class="quando">{{ x.datas.length }}<small>aula{{ x.datas.length === 1 ? '' : 's' }}</small></span>
+          <span class="oque">{{ x.nome }}<small>{{ x.turmas.join(' + ') }} · {{ x.datas.slice(0, 6).map((d) => fmt(d, { day: '2-digit', month: '2-digit' })).join(', ') }}{{ x.datas.length > 6 ? '…' : '' }}</small></span>
+          <span class="chip pend">Registrar conteúdo</span>
+        </button>
+      </div>
+    </div>
+
     <div v-for="[d, lista] in dias" :key="d" class="bloco" :class="{ destaque: d === hoje }">
       <h2>{{ titulo(d) }} <span class="sub">{{ fmt(d, { day: '2-digit', month: 'long' }) }}</span></h2>
       <div v-for="i in lista" :key="i.salaId" class="item">
@@ -125,6 +138,7 @@ h2 .sub { text-transform: none; font-weight: 400; }
 @media (hover: none) { .ocultar { opacity: 1; } }
 .destaque .item { border-left: 4px solid var(--accent); }
 .atrasado .item { border-left: 4px solid var(--warn); }
+.conteudo .item { border-left: 4px dashed var(--warn); }
 .quando { width: 64px; font-weight: 700; font-size: 13px; display: flex; flex-direction: column; }
 .oque { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 small { font-size: 11px; color: var(--muted); font-weight: 400; }

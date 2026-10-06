@@ -19,6 +19,8 @@ Uso pessoal, com a conta do próprio professor. Não virar multiusuário sem ava
 - Respostas misturadas: HTML/XML em ISO-8859-1, alguns JSON em UTF-8 (olhar o `content-type`).
 - Há WAF/bot manager na frente. **Não contornar** WAF/bot manager/CAPTCHA. Requisições via Node funcionam normalmente.
 - Sessão por cookies (guardados só em memória no servidor do app).
+- **Sessão expira por inatividade** e o portal NÃO redireciona: devolve a página de login com 200 (`<title>Login - APSWEB`). O `#req` detecta isso e lança `SessaoExpirada` (app volta para o login).
+  O servidor faz um "keep-alive" a cada 4 min enquanto logado (`app.php/Configuracoes?…loadConfiguracoes`).
 
 ### Login (formulário tradicional)
 1. `GET login.php5` (abre sessão).
@@ -52,6 +54,9 @@ Toda tela de turma (diário, avaliações, notas) usa a **última turma aberta**
 - Indicadores: 1 presença, 2 falta, 3 falta justificada, 4 atraso. Situação da aula: 0 não realizada, 1 realizada, 2 cancelada.
 - **Dia não realizado**: o portal mostra "–" em todos os períodos e ignora o que estiver guardado no banco. O app faz igual.
 - Cada aula = 3 períodos (horas), cada um com sua presença.
+- Carga horária: `DiarioClasse.cargaHorariaBase` no HTML do diário. Horas dadas = períodos com situação 1 (ex.: 9 dias × 3 = 27 "aulas dadas" do portal).
+- Frequência mínima 75% da carga horária → limite de faltas = 25% (ex.: 60 h → 15 h). `totalFaltas` do aluno vem em horas.
+  App: mostrador horas dadas / carga na Chamada + alerta quando restam ≤ 2 aulas de falta (amarelo) ou limite atingido/ultrapassado (vermelho).
 - Observação ("caderno"): **um texto por turma + módulo** (não por dia). `getObservacaoDiarioClasse` / `salvarObservacaoDiarioClasse` com `numeroModulo`, `codigoUsuario` (+ `observacao`).
 - `atualizaResultado` (sem parâmetros): recalcula frequência/faltas.
 
@@ -90,6 +95,18 @@ Toda tela de turma (diário, avaliações, notas) usa a **última turma aberta**
   Depois: `calcularNotas` (sem parâmetros) → médias/resultados.
 - Regras do professor (o app aplica; o portal não calcula): indicador = conceito da(s) avaliação(ões) dele; **menção D só se todos os indicadores forem A**, senão ND. Não usa NC nem SM.
 - No app: sub-aba "Notas" (`src/components/Notas.vue`), `server/notas.mjs` (visão/regras/aplicação), rotas `GET|POST /api/salas/:id/notas`. Ainda não testado gravando.
+
+### Programação de aulas (`programacao.php5`, mapeado — NADA gravado)
+- Depende da turma da sessão. JS: `js/programa.js` (+ `js/copiarPrograma.js` para "Copiar programação").
+- O GET embute um `PagePrincipal.addText(dataBR, 'AAAAMMDD', codigoProgramacao, 'AAAA-MM-DD 00:00:00', modulo, Base64.decode(programado), Base64.decode(realizado), editaProgramado, editaRealizado)` por dia, e `addDatasInicial(de, ate)`.
+- Regra observada: dia já dado → programado travado (0) e **realizado editável (1)**; dia futuro → programado editável (1) e realizado travado ("Aula não realizada").
+- Salvar (botão Salvar, junta o que mudou): `POST programacao.php5?useAjaxView=1` com `ViewProgramacaoAjax[method]=ajax_autoSavePrograma`, `debugReqId`,
+  e por campo alterado `textProgramaAula[<campo>][campo|valor|codigo|data|modulo|tipo]` (campo = `p<AAAAMMDD>` programado / `r<AAAAMMDD>` realizado; valor = urlEncode(texto + ' '); tipo = `programa` | `realizado`),
+  `empresa`/`unidade` (null se não EAD) e `form_key = sha1(urlEncode('ajax_autoSavePrograma' + Σ(campo+valor+codigo+data+modulo+tipo)))` (valor já com urlEncode).
+- Copiar programação: `ajax_loadDadosTurma`, `ajax_loadTurmas`, `ajax_copiarProgramacao` (não testado).
+- O oAjax monta o corpo **sem codificar** (`nome=valor&`); só o valor passa por `urlEncode` (escape → Latin-1). O app replica byte a byte (`corpoCru` no `#req`) e troca caracteres fora do Latin-1 (`paraLatin1`). Valor e form_key conferidos contra o JS do portal.
+- No app: painel "Conteúdo" na Chamada (`src/components/Conteudo.vue`), marca no calendário e aviso "Aulas sem conteúdo registrado" na tela Hoje; rotas `GET|POST /api/salas/:id/programacao`. O cache guarda só se o dia tem conteúdo (não o texto).
+- Situação real (2026-10-06): turmas de Testes com 1 dia preenchido em ~12 dias dados; a de manutenção de redes 2026 sem nenhum dia preenchido.
 
 ### Configurar avaliações (`configuraravaliacoes.php5`)
 - JS: `presenters/EditarParciais/EditarParciais.js` + componente `Ext.gvux.ConfigAvaliacao.js`.

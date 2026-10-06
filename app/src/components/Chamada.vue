@@ -5,6 +5,7 @@ import { confirmar } from '../dialogo.js';
 import Calendario from './Calendario.vue';
 import Caderno from './Caderno.vue';
 import Carregando from './Carregando.vue';
+import Conteudo from './Conteudo.vue';
 
 const props = defineProps({ sala: { type: Object, required: true }, dataInicial: { type: String, default: null } });
 const emit = defineEmits(['expirou']);
@@ -18,6 +19,37 @@ const MARCA = {
 
 const hoje = (() => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); })();
 const aulas = ref([]);
+const programacao = ref([]); // conteúdo programado/realizado por turma (carrega em paralelo, sem travar a chamada)
+// dias já dados sem "conteúdo realizado" em alguma turma da sala → marca no calendário
+const semConteudo = computed(() => {
+  const dadas = new Set(aulas.value.filter((a) => a.situacao === 1).map((a) => a.data));
+  return [...new Set(programacao.value.flatMap((t) => t.dias.filter((d) => dadas.has(d.data) && !d.realizado).map((d) => d.data)))];
+});
+async function carregarProgramacao() {
+  try { programacao.value = (await api.programacao(props.sala.id)).turmas; } catch (e) {
+    if (e instanceof NaoLogado) emit('expirou');
+  }
+}
+const andamento = ref([]); // por turma: cargaHoraria, horasDadas, horasPorAula, limiteFaltas
+
+// Frequência mínima 75% da carga horária → limite de faltas = 25%. Alerta quando restam ≤ 2 aulas.
+const andDe = (cpt) => andamento.value.find((x) => String(x.cpt) === String(cpt));
+function situacaoFaltas(a) {
+  const an = andDe(a.cpt);
+  if (!an || a.totalFaltas == null) return null;
+  const resta = an.limiteFaltas - a.totalFaltas;
+  const nivel = resta < 0 ? 'acima' : resta === 0 ? 'limite' : resta <= 2 * an.horasPorAula ? 'perto' : 'ok';
+  return { resta, nivel, aulas: Math.floor(Math.max(resta, 0) / an.horasPorAula) };
+}
+const alertasFaltas = computed(() => alunos.value.filter((a) => ativo(a))
+  .map((a) => ({ a, f: situacaoFaltas(a) })).filter((x) => x.f && x.f.nivel !== 'ok')
+  .sort((x, y) => x.f.resta - y.f.resta));
+// mostrador: um por turma (ou um só, se as turmas da sala estiverem iguais)
+const mostradores = computed(() => {
+  const l = andamento.value;
+  const iguais = l.length > 1 && l.every((x) => x.cargaHoraria === l[0].cargaHoraria && x.horasDadas === l[0].horasDadas);
+  return iguais ? [{ ...l[0], turma: null }] : l;
+});
 const data = ref(null);
 const alunos = ref([]);
 const carregando = ref(false);
@@ -63,7 +95,10 @@ function diaInicial(lista) {
 }
 
 const carregarAulas = async () => {
-  aulas.value = (await api.aulas(props.sala.id)).aulas;
+  const r = await api.aulas(props.sala.id);
+  aulas.value = r.aulas;
+  andamento.value = r.andamento ?? [];
+  carregarProgramacao();
 };
 
 async function trocarDia(d) {
@@ -144,10 +179,25 @@ onMounted(() => executar(async () => {
 
     <div class="layout">
     <div class="lateral">
-      <Calendario :aulas="aulas" :model-value="data" :disabled="carregando" @update:model-value="trocarDia" />
+      <Calendario :aulas="aulas" :model-value="data" :disabled="carregando" :marcas="semConteudo" @update:model-value="trocarDia" />
       <Caderno :sala="sala" :data="data" :alunos="alunos" @expirou="emit('expirou')" />
     </div>
     <div class="conteudo">
+    <div v-for="m in mostradores" :key="m.cpt" class="mostrador">
+      <div class="linha">
+        <strong>{{ m.horasDadas }} / {{ m.cargaHoraria }} h</strong>
+        <span class="sub">{{ m.turma ? m.turma + ' · ' : '' }}{{ Math.round(100 * m.horasDadas / (m.cargaHoraria || 1)) }}% da carga horária · faltam {{ Math.max(m.cargaHoraria - m.horasDadas, 0) }} h ({{ Math.ceil(Math.max(m.cargaHoraria - m.horasDadas, 0) / m.horasPorAula) }} aulas) · limite de faltas {{ m.limiteFaltas }} h</span>
+      </div>
+      <div class="barra-prog"><div :style="{ width: Math.min(100, 100 * m.horasDadas / (m.cargaHoraria || 1)) + '%' }" /></div>
+    </div>
+
+    <div v-if="alertasFaltas.length" class="alerta-faltas">
+      <strong>⚠ Frequência:</strong>
+      <span v-for="{ a, f } in alertasFaltas" :key="a.cpt + '-' + a.enturmacao" class="chip-f" :class="f.nivel">
+        {{ a.nome.split(' ').slice(0, 2).join(' ') }} — {{ f.nivel === 'acima' ? `passou ${-f.resta} h do limite` : f.nivel === 'limite' ? 'no limite, não pode mais faltar' : `pode faltar só mais ${f.resta} h (${f.aulas} aula${f.aulas === 1 ? '' : 's'})` }}
+      </span>
+    </div>
+
     <h3 v-if="data" class="dia">{{ new Date(data + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) }}</h3>
 
     <div v-if="msg" class="msg" :class="msg.tipo">{{ msg.txt }}</div>
@@ -173,7 +223,7 @@ onMounted(() => executar(async () => {
             <tr>
               <th>Aluno</th><th>Sala</th>
               <th v-for="n in periodos" :key="n" class="c" :title="`${n}ª hora/período`">{{ n }}ª h</th>
-              <th class="c">Todos</th><th class="c">%</th>
+              <th class="c">Todos</th><th class="c">Faltas</th><th class="c">%</th>
             </tr>
           </thead>
           <tbody>
@@ -192,12 +242,19 @@ onMounted(() => executar(async () => {
                   <button @click="definirLinha(a, 2)" :disabled="carregando" title="Falta em todos">F</button>
                 </template>
               </td>
+              <td class="c nowrap">
+                <template v-if="ativo(a) && situacaoFaltas(a)">
+                  <span class="faltas" :class="situacaoFaltas(a).nivel" :title="`Limite: ${andDe(a.cpt).limiteFaltas} h (25% da carga horária)`">{{ a.totalFaltas }} h</span>
+                  <div class="sub resta">{{ situacaoFaltas(a).resta >= 0 ? `resta ${situacaoFaltas(a).resta} h` : 'acima do limite' }}</div>
+                </template>
+              </td>
               <td class="c sub">{{ a.percentual != null ? a.percentual.toFixed(0) : '' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
     </template>
+    <Conteudo v-if="data && programacao.length" :sala="sala" :data="data" :programacao="programacao" @salvo="(t) => (programacao = t)" @expirou="emit('expirou')" />
     </div>
     </div>
   </section>
@@ -228,6 +285,18 @@ tr.inativo .mk { opacity: .45; pointer-events: none; }
 .sit { font-size: 11px; color: var(--warn); }
 .aviso { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: space-between; background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
 .falta { color: var(--warn); font-weight: 700; font-size: 12px; }
+.mostrador { margin-bottom: 10px; }
+.mostrador .linha { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+.barra-prog { height: 8px; background: var(--soft); border-radius: 4px; overflow: hidden; }
+.barra-prog div { height: 100%; background: var(--accent); }
+.alerta-faltas { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--card); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 13px; }
+.chip-f { padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+.chip-f.perto { background: var(--warn-bg); color: var(--warn); }
+.chip-f.limite, .chip-f.acima { background: var(--err-bg); color: var(--err); font-weight: 700; }
+.faltas { font-weight: 700; padding: 1px 6px; border-radius: 6px; }
+.faltas.perto { background: var(--warn-bg); color: var(--warn); }
+.faltas.limite, .faltas.acima { background: var(--err-bg); color: var(--err); }
+.resta { font-size: 11px; }
 .mk { width: 40px; height: 32px; padding: 0; font-weight: 700; }
 .mk.p { background: var(--ok-bg); color: var(--ok); }
 .mk.f { background: var(--err-bg); color: var(--err); }

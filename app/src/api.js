@@ -35,5 +35,7 @@ export const api = {
   planoTurma: (cpt) => chamar('GET', `/api/turmas/${cpt}/plano`),
   notas: (sala) => chamar('GET', `/api/salas/${sala}/notas`),
   salvarNotas: (sala, alteracoes) => chamar('POST', `/api/salas/${sala}/notas`, { alteracoes }),
+  programacao: (sala) => chamar('GET', `/api/salas/${sala}/programacao`),
+  salvarProgramacao: (sala, data, tipo, texto) => chamar('POST', `/api/salas/${sala}/programacao`, { data, tipo, texto }),
   salvarChamada: (sala, data, alunos) => chamar('POST', `/api/salas/${sala}/chamada`, { data, alunos }),
 };

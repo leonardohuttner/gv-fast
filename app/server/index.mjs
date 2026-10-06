@@ -4,7 +4,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Portal, SessaoExpirada } from './portal.mjs';
+import { Portal, SessaoExpirada, paraLatin1 } from './portal.mjs';
 import { listarSalas, criarSala, removerSala, agruparAutomatico, listarOcultas, ocultarTurmas } from './salas.mjs';
 import { cache, gravarDepois } from './cache.mjs';
 import { visao, montar, chaveIndicador } from './avaliacoes.mjs';
@@ -42,8 +42,60 @@ async function todasTurmas() {
 }
 async function aulasDaTurma(t, forcar = false) {
   const c = await cache();
-  if (forcar || !c.aulas[t.cpt]) { c.aulas[t.cpt] = await portal.aulas(t); gravarDepois(); }
+  if (forcar || !c.aulas[t.cpt]) {
+    const r = await portal.aulas(t);
+    c.aulas[t.cpt] = r.aulas;
+    if (r.cargaHoraria) c.carga[t.cpt] = r.cargaHoraria;
+    gravarDepois();
+  }
   return c.aulas[t.cpt];
+}
+
+// Programação de aulas: guarda só se cada dia tem conteúdo realizado (para a validação)
+async function resumoProgramacao(t, dias = null) {
+  const c = await cache();
+  const lista = dias ?? await portal.lerProgramacao(t);
+  c.programacao[t.cpt] = lista.map((d) => ({ data: d.data, temRealizado: !!d.realizado }));
+  gravarDepois();
+  return lista;
+}
+
+// Aulas já dadas sem "conteúdo realizado", por sala (últimos 90 dias)
+async function semConteudo() {
+  const c = await cache();
+  const grupos = await listarSalas();
+  const ocultas = await listarOcultas();
+  const grupoDe = new Map(grupos.flatMap((g) => g.turmas.map((t) => [t.cpt, g])));
+  const desde = somarDias(hoje(), -90);
+  const porSala = new Map();
+  for (const t of await todasTurmas()) {
+    const prog = c.programacao[t.cpt];
+    if (ocultas.has(t.cpt) || !prog) continue;
+    const dadas = new Set((c.aulas[t.cpt] ?? []).filter((a) => a.situacao === 1 && a.data >= desde && a.data <= hoje()).map((a) => a.data));
+    const faltando = prog.filter((d) => dadas.has(d.data) && !d.temRealizado).map((d) => d.data);
+    if (!faltando.length) continue;
+    const g = grupoDe.get(t.cpt);
+    const id = g ? g.id : `t-${t.cpt}`;
+    const item = porSala.get(id) ?? { salaId: id, nome: g?.nome ?? t.disciplina, turmas: [], datas: new Set() };
+    item.turmas.push(t.turma.trim());
+    faltando.forEach((d) => item.datas.add(d));
+    porSala.set(id, item);
+  }
+  return [...porSala.values()].map((x) => ({ ...x, datas: [...x.datas].sort() })).sort((a, b) => b.datas.length - a.datas.length);
+}
+
+// Andamento da disciplina: horas dadas x carga horária (1 período = 1 hora-aula)
+async function andamento(t) {
+  const aulas = await aulasDaTurma(t);
+  const periodos = aulas.flatMap((a) => a.periodos).filter((p) => p.situacao !== 2);
+  const previstas = periodos.length;
+  const carga = (await cache()).carga[t.cpt] || previstas;
+  const porAula = Math.max(1, Math.round(previstas / Math.max(1, aulas.filter((a) => a.situacao !== 2).length)));
+  return {
+    cpt: t.cpt, turma: t.turma.trim(), sala: t.sala,
+    cargaHoraria: carga, horasDadas: periodos.filter((p) => p.situacao === 1).length, horasPrevistas: previstas,
+    horasPorAula: porAula, limiteFaltas: Math.floor(carga * 0.25),
+  };
 }
 
 // Vincula sozinho as salas divididas a partir das turmas e datas já conhecidas
@@ -83,7 +135,7 @@ async function atualizarTudo() {
     atualizacao.etapa = 'aulas';
     for (const t of fila) {
       if (portal !== p || !p.logado) return;
-      try { await aulasDaTurma(t, true); } catch (e) {
+      try { await aulasDaTurma(t, true); await resumoProgramacao(t); } catch (e) {
         if (e instanceof SessaoExpirada) { p.logado = false; return; }
         console.error(`[atualização] ${t.turma}: ${e.message}`);
       }
@@ -196,7 +248,7 @@ async function api(req, res, url) {
   if (rota === 'GET /api/agenda') {
     const de = url.searchParams.get('de') || hoje();
     const ate = url.searchParams.get('ate') || somarDias(hoje(), 21);
-    return enviar(res, 200, { hoje: hoje(), itens: await agenda(de, ate), atualizacao });
+    return enviar(res, 200, { hoje: hoje(), itens: await agenda(de, ate), semConteudo: await semConteudo(), atualizacao });
   }
 
   // Salas para a chamada: grupos salvos + cada turma sem grupo
@@ -256,7 +308,7 @@ async function api(req, res, url) {
     return enviar(res, 200, resumir(await aulasDaTurma(t)));
   }
 
-  const m = url.pathname.match(/^\/api\/salas\/([\w-]+)\/(aulas|chamada|observacoes|resultado|avaliacoes|plano|notas)$/);
+  const m = url.pathname.match(/^\/api\/salas\/([\w-]+)\/(aulas|chamada|observacoes|resultado|avaliacoes|plano|notas|programacao)$/);
   const sala = m && await acharSala(m[1]);
   if (m && !sala) return enviar(res, 404, { erro: 'Sala não encontrada.' });
 
@@ -274,7 +326,9 @@ async function api(req, res, url) {
       const ativas = d.turmas.filter((t) => t.situacao !== 2);
       return { ...d, situacao: ativas.length ? Math.min(...ativas.map((t) => t.situacao)) : 2 };
     });
-    return enviar(res, 200, { aulas: lista });
+    const progresso = [];
+    for (const t of sala.turmas) progresso.push(await andamento(t));
+    return enviar(res, 200, { aulas: lista, andamento: progresso });
   }
 
   if (m && m[2] === 'chamada') {
@@ -432,6 +486,36 @@ async function api(req, res, url) {
     return enviar(res, 200, { feitas, divergencias, turmas });
   }
 
+  // Programação de aulas (conteúdo programado / realizado de cada dia)
+  if (m && m[2] === 'programacao' && req.method === 'GET') {
+    const turmas = [];
+    for (const t of sala.turmas) turmas.push({ cpt: t.cpt, turma: t.turma.trim(), sala: t.sala, dias: await resumoProgramacao(t) });
+    return enviar(res, 200, { turmas });
+  }
+  if (m && m[2] === 'programacao' && req.method === 'POST') {
+    const { data, tipo, texto = '' } = await lerJson(req);
+    if (!dataValida(data) || !['programa', 'realizado'].includes(tipo) || !String(texto).trim()) return enviar(res, 400, { erro: 'Dados inválidos.' });
+    const feitas = [];
+    const puladas = [];
+    for (const t of sala.turmas) {
+      const dia = (await portal.lerProgramacao(t)).find((d) => d.data === data);
+      if (!dia) { puladas.push(`${t.turma.trim()} (sem aula nessa data)`); continue; }
+      await portal.salvarProgramacao(t, [{ data, tipo, texto }]);
+      feitas.push(t.turma.trim());
+    }
+    // Conferência: relê e compara o texto
+    const norm = (x) => paraLatin1(x).replace(/\s+/g, ' ').trim();
+    const divergencias = [];
+    const turmas = [];
+    for (const t of sala.turmas) {
+      const dias = await resumoProgramacao(t);
+      const d = dias.find((x) => x.data === data);
+      if (feitas.includes(t.turma.trim()) && norm(tipo === 'programa' ? d?.programado : d?.realizado) !== norm(texto)) divergencias.push(`${t.turma.trim()}: texto gravado diferente do enviado`);
+      turmas.push({ cpt: t.cpt, turma: t.turma.trim(), sala: t.sala, dias });
+    }
+    return enviar(res, 200, { feitas, puladas, divergencias, turmas });
+  }
+
   if (m && m[2] === 'resultado' && req.method === 'POST') {
     for (const t of sala.turmas) await portal.atualizarResultado(t);
     return enviar(res, 200, { ok: true });
@@ -439,6 +523,14 @@ async function api(req, res, url) {
 
   return enviar(res, 404, { erro: 'Rota não encontrada.' });
 }
+
+// Mantém a sessão do portal viva enquanto o professor estiver logado (o portal expira por inatividade)
+setInterval(async () => {
+  if (!portal.logado) return;
+  try { await portal.manterSessao(); } catch (e) {
+    if (e instanceof SessaoExpirada) { portal.logado = false; console.error('[sessão] expirou no portal'); }
+  }
+}, 4 * 60 * 1000).unref();
 
 let vite;
 if (DEV) {

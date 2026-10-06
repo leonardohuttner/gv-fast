@@ -35,6 +35,20 @@ function argsJs(s) {
   return out;
 }
 
+// Texto da programação vindo do HTML (Base64 de UTF-8, quebras como <br>)
+function textoProgramacao(b64) {
+  let s;
+  try { s = Buffer.from(b64, 'base64').toString('utf8'); } catch { s = ''; }
+  return s.replace(/<br\s*\/?>/gi, '\n').replace(/\r\n/g, '\n').trim();
+}
+
+// O portal grava em ISO-8859-1 via escape(): troca o que não existe em Latin-1 por equivalentes simples
+export function paraLatin1(s) {
+  return String(s ?? '').replace(/[\u2018\u2019\u201A\u2032]/g, "'").replace(/[\u201C\u201D\u201E\u2033]/g, '"')
+    .replace(/[\u2013\u2014\u2212]/g, '-').replace(/\u2026/g, '...').replace(/\u2022/g, '-').replace(/[\u00A0\u2007\u202F]/g, ' ')
+    .replace(/\r\n/g, '\n').replace(/[^\x00-\xFF]/g, '?');
+}
+
 // Form urlencoded; listas viram campos repetidos (ex.: idsparciais[]=a&idsparciais[]=b), como o ExtJS faz
 function codificarForm(form) {
   const u = new URLSearchParams();
@@ -83,16 +97,17 @@ export class Portal {
     return p;
   }
 
-  async #req(url, { method = 'GET', form, ajax = false, referer } = {}) {
+  // corpoCru: corpo já montado (string), enviado sem recodificar — usado onde o portal monta "nome=valor&" na mão
+  async #req(url, { method = 'GET', form, corpoCru, ajax = false, referer } = {}) {
     const headers = { 'User-Agent': UA, Cookie: [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ') };
     // navegação de página: mesmos cabeçalhos de um navegador (o portal decide o formato da resposta pela "cara" do pedido)
     if (!ajax && method === 'GET') Object.assign(headers, { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'pt-BR,pt;q=0.9' });
     const multipart = form instanceof FormData;
-    if (form && !multipart) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
+    if ((form && !multipart) || corpoCru != null) headers['Content-Type'] = corpoCru != null ? 'application/x-www-form-urlencoded' : 'application/x-www-form-urlencoded; charset=UTF-8';
     if (ajax) headers['X-Requested-With'] = 'XMLHttpRequest';
     if (method === 'POST') headers.Origin = ORIGEM;
     if (referer) headers.Referer = referer;
-    const res = await fetch(url, { method, headers, body: multipart ? form : form ? codificarForm(form) : undefined, redirect: 'manual' });
+    const res = await fetch(url, { method, headers, body: corpoCru != null ? Buffer.from(corpoCru, 'latin1') : multipart ? form : form ? codificarForm(form) : undefined, redirect: 'manual' });
     for (const c of res.headers.getSetCookie()) {
       const kv = c.split(';')[0];
       const i = kv.indexOf('=');
@@ -100,7 +115,21 @@ export class Portal {
     }
     const buf = Buffer.from(await res.arrayBuffer());
     const utf8 = /utf-8/i.test(res.headers.get('content-type') || '');
-    return { status: res.status, location: res.headers.get('location'), text: buf.toString(utf8 ? 'utf8' : 'latin1') };
+    const text = buf.toString(utf8 ? 'utf8' : 'latin1');
+    // sessão expirada: o portal devolve a página de login com 200 (sem redirecionar)
+    if (!/login\.php5/.test(url) && /<title>\s*Login\s*-\s*APSWEB/i.test(text)) {
+      this.logado = false;
+      throw new SessaoExpirada();
+    }
+    return { status: res.status, location: res.headers.get('location'), text };
+  }
+
+  // Chamada leve e autenticada para a sessão do portal não expirar por inatividade
+  manterSessao() {
+    return this.serial(async () => {
+      const r = await this.#req(ORIGEM + '/modulos/app/app.php/Configuracoes?ViewConfiguracoesJson%5Bmethod%5D=loadConfiguracoes', { ajax: true, referer: BASE + 'index.php5' });
+      if (r.location && /login/.test(r.location)) { this.logado = false; throw new SessaoExpirada(); }
+    });
   }
 
   async login(cpf, senha) {
@@ -130,7 +159,11 @@ export class Portal {
       const alerta = (r.text.match(/alert\(['"]([^'"]{3,200})['"]\)/) || [])[1];
       throw new Error(alerta || 'Login recusado pelo portal.');
     }
-    const idx = await this.#req(BASE + 'index.php5');
+    let idx;
+    try { idx = await this.#req(BASE + 'index.php5'); } catch (e) {
+      if (e instanceof SessaoExpirada) throw new Error('Portal não aceitou a sessão.');
+      throw e;
+    }
     if (/login\.php5/.test(idx.location || '') || idx.text.length < 2000) throw new Error('Portal não aceitou a sessão.');
     this.logado = true;
     return { nome: (idx.text.match(/class="[^"]*nomeUsuario[^"]*"[^>]*>([^<]+)/) || [])[1]?.trim() || null };
@@ -163,7 +196,8 @@ export class Portal {
       const aberta = (d.text.match(/Turma:\s*([^\s<&]+)/) || [])[1];
       throw new Error(`Portal abriu outra turma/disciplina (${aberta || '?'}) em vez de ${t.turma}. Nada foi enviado.`);
     }
-    return { url, aulas: lerAulas(d.text), usuario: (d.text.match(/DiarioClasse\.codigoUsuario\s*=\s*'(\d+)'/) || [])[1] };
+    const carga = Number((d.text.match(/DiarioClasse\.cargaHorariaBase\s*=\s*'?(\d+)/) || [])[1]) || null;
+    return { url, aulas: lerAulas(d.text), cargaHoraria: carga, usuario: (d.text.match(/DiarioClasse\.codigoUsuario\s*=\s*'(\d+)'/) || [])[1] };
   }
 
   // Observação ("caderno") do professor: um texto por turma + módulo (não é por dia)
@@ -399,6 +433,54 @@ export class Portal {
     return this._gvroute;
   }
 
+  // ---------- Programação de aulas (programacao.php5) ----------
+  // Lê os dias: { data, ymd, codigo, modulo, programado, realizado, editaProgramado, editaRealizado }
+  async #abrirProgramacao(t) {
+    const { url: urlDiario } = await this.abrirTurma(t); // confere codigoProfessorTurma
+    const pag = await this.#req(BASE + 'programacao.php5', { referer: urlDiario });
+    const cpt = (pag.text.match(/CopiarPrograma\.init\((\d+)\)/) || [])[1];
+    if (cpt && cpt !== String(t.cpt)) throw new Error(`Programação abriu outra turma/disciplina em vez de ${t.turma}. Nada foi enviado.`);
+    const dias = [...pag.text.matchAll(/PagePrincipal\.addText\(\s*'[^']*',\s*'(\d{8})',\s*'(\d+)',\s*'([^']*)',\s*'([^']*)',\s*Base64\.decode\('([^']*)'\),\s*Base64\.decode\('([^']*)'\),\s*'(\d)',\s*'(\d)'\)/g)]
+      .map((m) => ({
+        ymd: m[1], data: `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6)}`, codigo: m[2], dataHora: m[3], modulo: m[4],
+        programado: textoProgramacao(m[5]), realizado: textoProgramacao(m[6]), editaProgramado: m[7] === '1', editaRealizado: m[8] === '1',
+      }));
+    if (!dias.length && !/PagePrincipal/.test(pag.text)) throw new Error('Tela de programação não abriu como esperado. Nada foi enviado.');
+    return dias;
+  }
+
+  lerProgramacao(t) {
+    return this.serial(() => this.#abrirProgramacao(t));
+  }
+
+  // itens: [{ data: 'AAAA-MM-DD', tipo: 'programa' | 'realizado', texto }]
+  // Monta o corpo igual ao oAjax do portal: "nome=valor&" sem codificar, valor = urlEncode(texto + ' ') (Latin-1)
+  salvarProgramacao(t, itens) {
+    return this.serial(async () => {
+      const dias = await this.#abrirProgramacao(t);
+      const partes = [['ViewProgramacaoAjax[method]', 'ajax_autoSavePrograma'], ['debugReqId', `gvfast-${Date.now()}`]];
+      let chave = '';
+      for (const it of itens) {
+        const d = dias.find((x) => x.data === it.data);
+        if (!d) throw new Error(`${t.turma}: não há aula em ${it.data} na programação. Nada foi enviado.`);
+        const pode = it.tipo === 'programa' ? d.editaProgramado : d.editaRealizado;
+        if (!pode) throw new Error(`${t.turma}: o portal não permite editar o ${it.tipo === 'programa' ? 'programado' : 'realizado'} de ${it.data}. Nada foi enviado.`);
+        const campo = (it.tipo === 'programa' ? 'p' : 'r') + d.ymd;
+        const valor = paraLatin1(it.texto) + ' '; // o portal acrescenta um espaço (evita "\" no fim)
+        const nome = `textProgramaAula[${campo}]`;
+        partes.push([`${nome}[campo]`, campo], [`${nome}[valor]`, urlEncode(valor)], [`${nome}[codigo]`, d.codigo], [`${nome}[data]`, d.dataHora], [`${nome}[modulo]`, d.modulo], [`${nome}[tipo]`, it.tipo]);
+        chave += campo + valor + d.codigo + d.dataHora + d.modulo + it.tipo;
+      }
+      partes.push(['empresa', 'null'], ['unidade', 'null'], ['form_key', formKey('ajax_autoSavePrograma' + chave)]);
+      const corpoCru = partes.map(([k, v]) => `${k}=${v}&`).join('');
+      const r = await this.#req(BASE + 'programacao.php5?useAjaxView=1', { method: 'POST', corpoCru, ajax: true, referer: BASE + 'programacao.php5' });
+      const erro = Number((r.text.match(/<errorcode>(\d+)<\/errorcode>/) || [])[1] ?? -1);
+      const msg = (r.text.match(/<par>([^<]*)<\/par>/) || r.text.match(/<errormsg>([^<]*)<\/errormsg>/) || [])[1] || '';
+      if (erro !== 0) throw new Error(`Programação: ${msg || 'o portal recusou o envio'}`);
+      return { mensagem: msg };
+    });
+  }
+
   // "Atualizar resultado" do diário: recalcula frequência/faltas da turma
   atualizarResultado(t) {
     return this.serial(async () => {
@@ -408,8 +490,12 @@ export class Portal {
   }
 
   // Dias letivos da turma: [{ data, modulo, situacao: 0 não realizada | 1 realizada | 2 cancelada, periodos }]
+  // Dias letivos + carga horária da disciplina (da página do diário)
   aulas(t) {
-    return this.serial(async () => (await this.abrirTurma(t)).aulas);
+    return this.serial(async () => {
+      const { aulas, cargaHoraria } = await this.abrirTurma(t);
+      return { aulas, cargaHoraria };
+    });
   }
 
   async diario(url, metodo, params) {
