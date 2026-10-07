@@ -19,6 +19,9 @@ const alunos = ref([]);
 const carregando = ref(false);
 const msg = ref(null);
 
+// descrições do portal vêm com entidades HTML e espaços sobrando
+const limpar = (t) => String(t ?? '').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+
 const porChave = (a, b) => a.localeCompare(b, 'pt-BR', { numeric: true });
 
 // Colunas: indicadores (união das turmas) com suas avaliações (por sigla)
@@ -199,6 +202,22 @@ onMounted(carregar);
           </tbody>
         </table>
       </div>
+      <div class="legenda">
+        <h3>Indicadores</h3>
+        <dl>
+          <template v-for="c in colunas" :key="c.chave">
+            <dt>{{ c.sigla }}</dt>
+            <dd>
+              {{ limpar(c.descricao) || '—' }}
+              <span v-if="c.avaliacoes.length" class="sub avs">Avaliações: {{ c.avaliacoes.map((av) => av.descricao && av.descricao.toLowerCase() !== av.sigla.toLowerCase() ? `${av.sigla} (${limpar(av.descricao)})` : av.sigla).join(', ') }}</span>
+            </dd>
+          </template>
+        </dl>
+        <p class="sub conceitos">
+          <span><b class="mk mini a">A</b> Atendido</span><span><b class="mk mini pa">PA</b> Parcialmente atendido</span><span><b class="mk mini na">NA</b> Não atendido</span>
+          <span><b class="mk mini a">D</b> Desenvolvida</span><span><b class="mk mini na">ND</b> Não desenvolvida</span>
+        </p>
+      </div>
     </template>
   </section>
 </template>
@@ -231,4 +250,12 @@ thead .aluno { background: var(--soft); }
 tr.inativo td { background: color-mix(in srgb, var(--warn-bg) 60%, transparent); color: var(--muted); }
 tr.inativo .mk { opacity: .45; pointer-events: none; }
 .sit { font-size: 11px; color: var(--warn); }
+.legenda { margin-top: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+.legenda h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; font-size: 13px; line-height: 1.45; }
+dt { font-weight: 700; }
+dd { margin: 0; }
+.avs { display: block; font-size: 12px; }
+.conceitos { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--soft); }
+.mk.mini { display: inline-grid; place-items: center; width: auto; min-width: 28px; height: 20px; padding: 0 4px; border-radius: 5px; font-size: 11px; margin-right: 4px; }
 </style>
