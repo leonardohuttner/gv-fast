@@ -511,6 +511,22 @@ export class Portal {
   }
 
   // Alunos + frequência do dia. Turma sem aula nessa data → [].
+  // Motivos de falta justificada (tipos de atestado). A lista é da instituição: busca uma vez por sessão.
+  justificativasFalta(t) {
+    if (this._justificativas) return Promise.resolve(this._justificativas);
+    return this.serial(async () => {
+      const { url } = await this.abrirTurma(t);
+      const r = await this.#req(url, { method: 'POST', ajax: true, referer: url, form: { 'ViewDiarioClasseXmlXsl[method]': 'getJustificativasFalta', filtroSexo: '-1', filtroIdade: '-1', tipoFaltaJustificada: '1' } });
+      let rows;
+      try { rows = JSON.parse(r.text).rows ?? []; } catch { throw new Error('getJustificativasFalta: resposta inesperada'); }
+      this._justificativas = rows.map((x) => ({
+        codigo: Number(x.CODIGO), descricao: String(x.DESCRICAO ?? '').trim(), legenda: String(x.LEGENDA ?? '').trim(),
+        tipo: x.TIPOMARCACAO, sexo: x.SEXO || null, idadeMin: Number(x.IDADEMINIMA) || 0, idadeMax: Number(x.IDADEMAXIMA) || 0,
+      }));
+      return this._justificativas;
+    });
+  }
+
   lerChamada(t, data) {
     return this.serial(async () => {
       const { url, aulas } = await this.abrirTurma(t);

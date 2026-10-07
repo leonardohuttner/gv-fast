@@ -51,7 +51,9 @@ Toda tela de turma (diário, avaliações, notas) usa a **última turma aberta**
 - AJAX: `POST` mesma URL, form-urlencoded, `X-Requested-With`, `ViewDiarioClasseXmlXsl[method]=<método>` → `{success, errorcode, errormsg, total, data}`.
 - `loadAlunosAulaDiario` (`data`, `modulo`, `codigoEmpresaPolo=`, `codigoUnidadePolo=`) → alunos com `enturmacao`, `nome`, `descricaoResultado`, `permiteDigitarFrequencia`, `percentual`, `periodos{d<data>t<turno>p<n>: {diarioClasse, diarioClasseAluno, enturmacaoVinculo, indicadorPresenca, justificativaFalta, turmaHorariosEad, situacao}}`.
 - `salvaIndicadoresAula` (✔ testado): `periodos` = JSON `[{diarioClasse, situacao:1}]` (só se a aula ainda não estava realizada), `indicadores` = JSON `[{enturmacao, enturmacaoVinculo, diarioClasse, diarioClasseAluno, indicadorPresenca, justificativaFalta, turmaHorariosEad, editAfast}]`, `modulo`, `empresa=false`, `unidade=false`.
-- Indicadores: 1 presença, 2 falta, 3 falta justificada, 4 atraso. Situação da aula: 0 não realizada, 1 realizada, 2 cancelada.
+- Indicadores: 1 presença, 2 falta, 3 falta justificada, 4 atraso.
+- **Falta justificada (3) leva motivo** em `justificativaFalta` (por período). Lista: `getJustificativasFalta` (`filtroSexo=-1`, `filtroIdade=-1`, `tipoFaltaJustificada=1`) → `{rows:[{CODIGO, DESCRICAO, LEGENDA, TIPOMARCACAO ('FJ'|'EC'), SEXO (null|'M'|'F'), IDADEMINIMA, IDADEMAXIMA}]}` (sem `success`). 20 motivos (ex.: AM atestado médico, AC, ACI, DL, FM, LN, LP; EC entrada em curso). Restrições de sexo/idade (0 = sem limite); o portal pula alunos fora da regra. Trocar para outro indicador zera o motivo.
+- `loadAlunosAulaDiario` traz `sexo` ('M'/'F') e `dataNascimento` ('AAAA-MM-DD hh:mm:ss'); o app calcula só a idade no servidor. Situação da aula: 0 não realizada, 1 realizada, 2 cancelada.
 - **Dia não realizado**: o portal mostra "–" em todos os períodos e ignora o que estiver guardado no banco. O app faz igual.
 - Cada aula = 3 períodos (horas), cada um com sua presença.
 - Carga horária: `DiarioClasse.cargaHorariaBase` no HTML do diário. Horas dadas = períodos com situação 1 (ex.: 9 dias × 3 = 27 "aulas dadas" do portal).

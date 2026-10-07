@@ -203,8 +203,17 @@ async function agenda(de, ate) {
 }
 
 // ---------- Chamada ----------
+// idade em anos (só para filtrar motivos de falta por idade; a data de nascimento não sai do servidor)
+function idade(nasc) {
+  const d = nasc ? new Date(nasc) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  const h = new Date();
+  return h.getFullYear() - d.getFullYear() - (h < new Date(h.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0);
+}
+
 function linhas(t, alunos) {
   return alunos.map((a) => ({
+    sexo: a.sexo || null, idade: idade(a.dataNascimento),
     cpt: t.cpt, turma: t.turma, sala: t.sala, enturmacao: a.enturmacao, nome: a.nome, matricula: a.matricula,
     situacaoAluno: a.descricaoResultado, percentual: a.percentual, totalFaltas: a.totalFaltas, editAfast: a.editAfast,
     pode: a.permiteDigitarFrequencia == 1,
@@ -335,7 +344,8 @@ async function api(req, res, url) {
     if (req.method === 'GET') {
       const data = url.searchParams.get('data');
       if (!dataValida(data)) return enviar(res, 400, { erro: 'Data inválida.' });
-      return enviar(res, 200, { alunos: await lerSala(sala, data) });
+      const alunos = await lerSala(sala, data);
+      return enviar(res, 200, { alunos, justificativas: await portal.justificativasFalta(sala.turmas[0]) });
     }
 
     if (req.method === 'POST') {
@@ -350,11 +360,13 @@ async function api(req, res, url) {
       }
       // Conferência obrigatória: relê e compara com o que foi marcado
       const esperado = new Map(alunos.flatMap((a) => a.periodos.map((p) => [`${a.enturmacao}:${p.diarioClasse}`, p.valor])));
+      const motivoEsperado = new Map(alunos.flatMap((a) => a.periodos.filter((p) => p.valor === 3).map((p) => [`${a.enturmacao}:${p.diarioClasse}`, Number(p.justificativaFalta) || null])));
       const atual = await lerSala(sala, data);
       const divergencias = [];
       for (const a of atual) for (const p of a.periodos) {
         const k = `${a.enturmacao}:${p.diarioClasse}`;
         if (esperado.has(k) && esperado.get(k) !== p.valor) divergencias.push({ turma: a.turma, nome: a.nome, periodo: p.periodo, marcado: esperado.get(k), gravado: p.valor });
+        else if (motivoEsperado.has(k) && motivoEsperado.get(k) !== (Number(p.justificativaFalta) || null)) divergencias.push({ turma: a.turma, nome: a.nome, periodo: p.periodo, marcado: 3, gravado: 3, motivo: true });
       }
       for (const t of sala.turmas) await aulasDaTurma(t, true); // atualiza agenda/calendário
       return enviar(res, 200, { enviados, divergencias, alunos: atual });

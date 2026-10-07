@@ -22,9 +22,15 @@ watch(() => dialogo.aberto, async (aberto) => {
       <h3 v-if="dialogo.titulo">{{ dialogo.titulo }}</h3>
       <p class="texto">{{ decodificar(dialogo.texto) }}</p>
       <input v-if="dialogo.campo" ref="campo" v-model="dialogo.valor">
+      <div v-if="dialogo.opcoes" class="opcoes">
+        <label v-for="o in dialogo.opcoes" :key="o.valor" class="opcao" :class="{ sel: String(dialogo.valor) === String(o.valor) }">
+          <input type="radio" :value="o.valor" v-model="dialogo.valor">
+          <span><b>{{ o.rotulo }}</b><small v-if="o.detalhe">{{ o.detalhe }}</small></span>
+        </label>
+      </div>
       <div class="botoes">
         <button type="button" @click="responder(false)">{{ dialogo.cancelar }}</button>
-        <button ref="btnOk" type="submit" class="pri" :class="{ perigo: dialogo.perigo }">{{ dialogo.ok }}</button>
+        <button ref="btnOk" type="submit" class="pri" :class="{ perigo: dialogo.perigo }" :disabled="dialogo.opcoes && dialogo.valor === ''">{{ dialogo.ok }}</button>
       </div>
     </form>
   </div>
@@ -38,4 +44,9 @@ p.texto { margin: 0 0 14px; white-space: pre-wrap; line-height: 1.5; overflow-y:
 input { width: 100%; margin-bottom: 14px; }
 .botoes { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid var(--soft); }
 .perigo { background: var(--err); border-color: var(--err); }
+.opcoes { overflow-y: auto; min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.opcao { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.opcao.sel { border-color: var(--accent); background: var(--t1-bg); }
+.opcao span { display: flex; flex-direction: column; }
+.opcao small { color: var(--muted); font-size: 12px; }
 </style>

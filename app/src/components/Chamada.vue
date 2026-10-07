@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api, NaoLogado } from '../api.js';
-import { confirmar } from '../dialogo.js';
+import { confirmar, escolher } from '../dialogo.js';
 import Calendario from './Calendario.vue';
 import Caderno from './Caderno.vue';
 import Carregando from './Carregando.vue';
@@ -58,7 +58,25 @@ const msg = ref(null);
 const periodos = computed(() => [...new Set(alunos.value.flatMap((a) => a.periodos.map((p) => p.periodo)))].sort((x, y) => x - y));
 // Só alunos cursando entram na chamada; desistentes/evadidos/etc. ficam visíveis mas travados
 const ativo = (a) => a.pode && /CURSANDO/i.test(a.situacaoAluno || '');
-const alterados = computed(() => alunos.value.filter((a) => ativo(a) && a.periodos.some((p) => p.valor !== p.original)));
+const alterados = computed(() => alunos.value.filter((a) => ativo(a) && a.periodos.some((p) => p.valor !== p.original || (p.valor === 3 && p.justificativaFalta !== p.motivoOriginal))));
+
+// Falta justificada (FJ): cada hora leva um motivo (tipo de atestado), que pode ter restrição de sexo/idade
+const justificativas = ref([]);
+const motivo = (cod) => justificativas.value.find((j) => j.codigo === Number(cod));
+const motivosPara = (a) => justificativas.value.filter((j) => (!j.sexo || j.sexo === a.sexo)
+  && (!j.idadeMin || (a.idade != null && a.idade >= j.idadeMin)) && (!j.idadeMax || (a.idade != null && a.idade <= j.idadeMax)));
+const fjSemMotivo = computed(() => alunos.value.filter((a) => ativo(a) && a.periodos.some((p) => p.valor === 3 && !p.justificativaFalta)));
+const motivosUsados = computed(() => [...new Set(alunos.value.flatMap((a) => a.periodos.filter((p) => p.valor === 3 && p.justificativaFalta).map((p) => Number(p.justificativaFalta))))].map(motivo).filter(Boolean));
+const mudouCel = (p) => p.valor !== p.original || (p.valor === 3 && p.justificativaFalta !== p.motivoOriginal);
+
+async function escolherMotivo(a, atual) {
+  const lista = motivosPara(a);
+  if (!lista.length) { msg.value = { tipo: 'err', txt: 'Nenhum motivo de falta justificada disponível para este aluno.' }; return null; }
+  const r = await escolher(`${a.nome}\nEscolha o motivo da falta justificada:`,
+    lista.map((j) => ({ valor: j.codigo, rotulo: `${j.legenda} — ${j.descricao}`, detalhe: j.tipo === 'EC' ? 'Entrada em curso' : null })),
+    atual ?? '', { titulo: 'Falta justificada', ok: 'Usar este motivo' });
+  return r == null ? null : Number(r);
+}
 const semMarcacao = computed(() => alunos.value.filter((a) => ativo(a) && a.periodos.some((p) => p.valor == null)));
 const cel = (a, n) => a.periodos.find((p) => p.periodo === n);
 const corTurma = (cpt) => (String(cpt) === String(props.sala.turmas[1]?.cpt) ? 't2' : 't1');
@@ -75,7 +93,8 @@ function receber(lista) {
     ...a,
     periodos: a.periodos.map((p) => {
       const valor = diaPendente || String(p.situacao) === '0' ? null : p.valor;
-      return { ...p, valor, original: valor };
+      const just = valor === 3 ? (Number(p.justificativaFalta) || null) : null;
+      return { ...p, valor, original: valor, justificativaFalta: just, motivoOriginal: just };
     }),
   }));
 }
@@ -112,17 +131,39 @@ const carregar = () => executar(async () => {
   if (!data.value) return;
   msg.value = null;
   alunos.value = [];
-  const { alunos: lista } = await api.chamada(props.sala.id, data.value);
+  const r = await api.chamada(props.sala.id, data.value);
+  justificativas.value = r.justificativas ?? justificativas.value;
+  const lista = r.alunos;
   receber(lista);
   if (!lista.some((a) => a.periodos.length)) msg.value = { tipo: '', txt: `Sem aula cadastrada em ${dataBr.value}.` };
 });
 
-const girar = (a, p) => { if (ativo(a)) p.valor = p.valor == null ? 1 : (p.valor % 4) + 1; };
-const definirLinha = (a, v) => { if (ativo(a)) a.periodos.forEach((p) => (p.valor = v)); };
+// • → F → FJ (pede o motivo; cancelar pula para AT) → AT
+async function girar(a, p) {
+  if (!ativo(a)) return;
+  const prox = p.valor == null ? 1 : (p.valor % 4) + 1;
+  if (prox === 3) {
+    const cod = await escolherMotivo(a, p.justificativaFalta);
+    if (cod == null) { p.valor = 4; p.justificativaFalta = null; return; }
+    p.valor = 3;
+    p.justificativaFalta = cod;
+    return;
+  }
+  p.valor = prox;
+  p.justificativaFalta = null;
+}
+// trocar o motivo de uma FJ já marcada (clique com o botão direito)
+async function trocarMotivo(a, p) {
+  if (!ativo(a) || p.valor !== 3) return;
+  const cod = await escolherMotivo(a, p.justificativaFalta);
+  if (cod != null) p.justificativaFalta = cod;
+}
+const definirLinha = (a, v) => { if (ativo(a)) a.periodos.forEach((p) => { p.valor = v; p.justificativaFalta = null; }); };
 const todosPresentes = () => alunos.value.forEach((a) => definirLinha(a, 1));
 const desfazer = () => alunos.value.forEach((a) => a.periodos.forEach((p) => (p.valor = p.original)));
 
 const salvar = async () => {
+  if (fjSemMotivo.value.length) { msg.value = { tipo: 'err', txt: `Falta justificada sem motivo para ${fjSemMotivo.value.length} aluno(s). Clique com o botão direito na FJ para escolher.` }; return; }
   if (semMarcacao.value.length) { msg.value = { tipo: 'err', txt: `Faltam marcações para ${semMarcacao.value.length} aluno(s). Preencha todos antes de salvar.` }; return; }
   const porTurma = props.sala.turmas
     .map((t) => `• ${t.turma} (sala ${t.sala}): ${alterados.value.filter((a) => String(a.cpt) === String(t.cpt)).length} aluno(s)`)
@@ -135,7 +176,7 @@ const salvar = async () => {
     receber(r.alunos);
     const enviados = r.enviados.map((e) => `${e.turma}: ${e.alunos} aluno(s)`).join('\n');
     msg.value = r.divergencias.length
-      ? { tipo: 'err', txt: `⚠ Conferência encontrou diferenças:\n${r.divergencias.map((d) => `${d.turma} · ${d.nome} · P${d.periodo}: marcado ${MARCA[d.marcado]?.txt}, gravado ${MARCA[d.gravado]?.txt ?? 'vazio'}`).join('\n')}` }
+      ? { tipo: 'err', txt: `⚠ Conferência encontrou diferenças:\n${r.divergencias.map((d) => (d.motivo ? `${d.turma} · ${d.nome} · P${d.periodo}: motivo da falta justificada diferente do marcado` : `${d.turma} · ${d.nome} · P${d.periodo}: marcado ${MARCA[d.marcado]?.txt}, gravado ${MARCA[d.gravado]?.txt ?? 'vazio'}`)).join('\n')}` }
       : { tipo: 'ok', txt: `✔ Gravado e conferido.\n${enviados}` };
   });
 };
@@ -213,7 +254,7 @@ onMounted(() => executar(async () => {
       <div class="barra">
         <button @click="todosPresentes" :disabled="carregando">Todos presentes</button>
         <button @click="desfazer" :disabled="carregando || !alterados.length">Desfazer</button>
-        <span class="sub dica">Clique para trocar: • → F → FJ → AT</span>
+        <span class="sub dica">Clique: • → F → FJ (escolhe o motivo) → AT · botão direito na FJ troca o motivo</span>
         <span v-if="semMarcacao.length && alterados.length" class="falta">{{ semMarcacao.length }} sem marcação</span>
         <button class="pri" @click="salvar" :disabled="carregando || !alterados.length || semMarcacao.length > 0">Salvar ({{ alterados.length }})</button>
       </div>
@@ -231,9 +272,11 @@ onMounted(() => executar(async () => {
               <td>{{ a.nome }}<div v-if="!ativo(a)" class="sit">{{ a.situacaoAluno }}</div></td>
               <td><span class="tag" :class="corTurma(a.cpt)">{{ a.sala }}</span></td>
               <td v-for="n in periodos" :key="n" class="c">
-                <button v-if="cel(a, n)" class="mk" :class="[MARCA[cel(a, n).valor]?.cls, { mud: cel(a, n).valor !== cel(a, n).original }]"
-                        :disabled="!ativo(a) || carregando" :title="MARCA[cel(a, n).valor]?.nome || 'Sem marcação'" @click="girar(a, cel(a, n))">
-                  {{ MARCA[cel(a, n).valor]?.txt ?? '–' }}
+                <button v-if="cel(a, n)" class="mk" :class="[MARCA[cel(a, n).valor]?.cls, { mud: mudouCel(cel(a, n)), semmotivo: cel(a, n).valor === 3 && !cel(a, n).justificativaFalta }]"
+                        :disabled="!ativo(a) || carregando"
+                        :title="cel(a, n).valor === 3 ? `Falta justificada: ${motivo(cel(a, n).justificativaFalta)?.descricao ?? 'sem motivo — clique com o botão direito'}` : (MARCA[cel(a, n).valor]?.nome || 'Sem marcação')"
+                        @click="girar(a, cel(a, n))" @contextmenu.prevent="trocarMotivo(a, cel(a, n))">
+                  {{ cel(a, n).valor === 3 ? (motivo(cel(a, n).justificativaFalta)?.legenda ?? 'FJ?') : (MARCA[cel(a, n).valor]?.txt ?? '–') }}
                 </button>
               </td>
               <td class="c nowrap">
@@ -254,6 +297,7 @@ onMounted(() => executar(async () => {
         </table>
       </div>
     </template>
+    <p v-if="motivosUsados.length" class="sub legenda-fj">Faltas justificadas: {{ motivosUsados.map((j) => `${j.legenda} = ${j.descricao}`).join(' · ') }}</p>
     <Conteudo v-if="data && programacao.length" :sala="sala" :data="data" :programacao="programacao" @salvo="(t) => (programacao = t)" @expirou="emit('expirou')" />
     </div>
     </div>
@@ -303,4 +347,7 @@ tr.inativo .mk { opacity: .45; pointer-events: none; }
 .mk.fj { background: var(--warn-bg); color: var(--warn); }
 .mk.at { background: var(--late-bg); color: var(--late); }
 .mk.mud { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mk.fj { font-size: 11px; letter-spacing: -.2px; }
+.mk.semmotivo { outline: 2px dashed var(--err); outline-offset: 1px; }
+.legenda-fj { margin: 8px 0 0; }
 </style>
