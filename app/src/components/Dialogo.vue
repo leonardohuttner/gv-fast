@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { dialogo, responder } from '../dialogo.js';
 
 const btnOk = ref(null);
@@ -7,12 +7,13 @@ const campo = ref(null);
 
 // textos vindos do portal trazem entidades HTML (&nbsp; etc.)
 const decodificar = (t) => String(t ?? '').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/[ \t]{2,}/g, ' ');
+const detalhe = computed(() => dialogo.opcoes?.find((o) => String(o.valor) === String(dialogo.valor))?.detalhe);
 
 watch(() => dialogo.aberto, async (aberto) => {
   if (!aberto) return;
   await nextTick();
   (campo.value ?? btnOk.value)?.focus();
-  campo.value?.select();
+  if (campo.value?.tagName === 'INPUT') campo.value.select();
 });
 </script>
 
@@ -22,12 +23,13 @@ watch(() => dialogo.aberto, async (aberto) => {
       <h3 v-if="dialogo.titulo">{{ dialogo.titulo }}</h3>
       <p class="texto">{{ decodificar(dialogo.texto) }}</p>
       <input v-if="dialogo.campo" ref="campo" v-model="dialogo.valor">
-      <div v-if="dialogo.opcoes" class="opcoes">
-        <label v-for="o in dialogo.opcoes" :key="o.valor" class="opcao" :class="{ sel: String(dialogo.valor) === String(o.valor) }">
-          <input type="radio" :value="o.valor" v-model="dialogo.valor">
-          <span><b>{{ o.rotulo }}</b><small v-if="o.detalhe">{{ o.detalhe }}</small></span>
-        </label>
-      </div>
+      <template v-if="dialogo.opcoes">
+        <select ref="campo" v-model="dialogo.valor" class="escolha">
+          <option value="" disabled>Selecione…</option>
+          <option v-for="o in dialogo.opcoes" :key="o.valor" :value="o.valor">{{ decodificar(o.rotulo) }}</option>
+        </select>
+        <small v-if="detalhe" class="detalhe">{{ decodificar(detalhe) }}</small>
+      </template>
       <div class="botoes">
         <button type="button" @click="responder(false)">{{ dialogo.cancelar }}</button>
         <button ref="btnOk" type="submit" class="pri" :class="{ perigo: dialogo.perigo }" :disabled="dialogo.opcoes && dialogo.valor === ''">{{ dialogo.ok }}</button>
@@ -44,9 +46,6 @@ p.texto { margin: 0 0 14px; white-space: pre-wrap; line-height: 1.5; overflow-y:
 input { width: 100%; margin-bottom: 14px; }
 .botoes { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid var(--soft); }
 .perigo { background: var(--err); border-color: var(--err); }
-.opcoes { overflow-y: auto; min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.opcao { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
-.opcao.sel { border-color: var(--accent); background: var(--t1-bg); }
-.opcao span { display: flex; flex-direction: column; }
-.opcao small { color: var(--muted); font-size: 12px; }
+.escolha { width: 100%; margin-bottom: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); font-size: 14px; }
+.detalhe { display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
 </style>
