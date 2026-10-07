@@ -75,6 +75,24 @@ npm run dev             # http://localhost:5180
 
 Build de produção: `npm run build && npm start` (serve o `dist/` pelo mesmo servidor).
 
+### App de desktop (.dmg / .exe)
+
+O mesmo app empacotado com **Electron**: uma janela própria, sem terminal. O servidor do GV Fast roda escondido numa porta livre e os dados locais ficam na pasta de dados do app no sistema.
+
+```bash
+cd app
+npm install
+cp .env.example .env      # GV_UNIDADE com a sua unidade (o build lê daqui)
+npm run dist:mac          # → app/release/GV Fast-<versão>-arm64.dmg   (Mac Apple Silicon)
+npm run dist:win          # → app/release/GV Fast Setup <versão>.exe   (Windows 64 bits; dá para gerar no Mac)
+npm run desktop           # abre o app de desktop sem empacotar (teste rápido)
+```
+
+- O build grava a unidade em `app/electron/config.json` (fora do git) e ela vai **dentro do instalador**: o instalador é de uso pessoal, **não publique**.
+- Instaladores e saída do build ficam em `app/release/` (fora do git). Nada de binário no repositório.
+- Apps não assinados: na primeira abertura, **Mac** → Ajustes do Sistema › Privacidade e Segurança › "Abrir mesmo assim"; **Windows** → SmartScreen › "Mais informações" › "Executar assim mesmo".
+- Para atualizar: gere de novo e instale por cima (os dados locais são mantidos).
+
 ---
 
 ## API local
@@ -117,6 +135,8 @@ app/
     components/      Hoje, Chamada, Calendario, Conteudo, Caderno, Avaliacoes, Notas, Plano,
                      Turmas, Login, Dialogo, Carregando
   data/              dados locais (não versionado)
+  electron/main.mjs  app de desktop: sobe o servidor e abre a janela
+  scripts/           config-desktop.mjs (gera a configuração do build pessoal)
 context/CLAUDE.md    mapa técnico do portal (endpoints, formatos, regras)
 ```
 
@@ -155,5 +175,5 @@ Primeira gravação de cada tela: um item só, conferindo depois no portal.
 ## Próximos passos
 
 - Testar a gravação de avaliações, notas, conteúdo e caderno.
-- App de desktop (.exe / .dmg) com Electron e atualização automática pelas Releases.
+- Atualização automática do app de desktop.
 - Calendário de aulas a partir de planilha (.xlsx).

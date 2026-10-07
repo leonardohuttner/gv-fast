@@ -3,6 +3,18 @@ node_modules
 dist
 .env
 .env.*
+!.env.example
+
 # dados locais do app (cache de datas, vínculos, turmas ocultas)
 app/data/
-!.env.example
+
+# app de desktop: instaladores e saída do build (nunca versionar)
+release/
+*.dmg
+*.exe
+*.msi
+*.blockmap
+*.AppImage
+latest*.yml
+# configuração do build pessoal (contém a unidade)
+app/electron/config.json
