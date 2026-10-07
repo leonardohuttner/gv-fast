@@ -93,6 +93,16 @@ npm run desktop           # abre o app de desktop sem empacotar (teste rápido)
 - Apps não assinados: na primeira abertura, **Mac** → Ajustes do Sistema › Privacidade e Segurança › "Abrir mesmo assim"; **Windows** → SmartScreen › "Mais informações" › "Executar assim mesmo".
 - Para atualizar: gere de novo e instale por cima (os dados locais são mantidos).
 
+#### Nova versão
+
+```bash
+npm --prefix app version patch     # 1.0.0 → 1.0.1 (correções) · use "minor" para 1.1.0 (novidades)
+git push --follow-tags             # envia o commit da versão e a tag vX.Y.Z
+cd app && npm run dist:mac && npm run dist:win
+```
+
+`npm version` atualiza o `app/package.json`, faz o commit e cria a tag `vX.Y.Z`; o instalador sai com a versão no nome. Cada tag marca no GitHub o código que gerou aquela versão.
+
 ---
 
 ## API local
