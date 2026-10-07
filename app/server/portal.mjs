@@ -537,6 +537,21 @@ export class Portal {
     });
   }
 
+  // Chamada de vários dias de uma vez (abre a turma uma só vez) → { data: alunos[] }
+  lerChamadas(t, datas) {
+    return this.serial(async () => {
+      const { url, aulas } = await this.abrirTurma(t);
+      const out = {};
+      for (const data of datas) {
+        const dia = aulas.find((a) => a.data === data);
+        if (!dia) continue;
+        const j = await this.diario(url, 'loadAlunosAulaDiario', { data, modulo: dia.modulo, codigoEmpresaPolo: '', codigoUnidadePolo: '' });
+        out[data] = j.data || [];
+      }
+      return out;
+    });
+  }
+
   // alunos: [{ enturmacao, editAfast, periodos: [{ diarioClasse, diarioClasseAluno, enturmacaoVinculo, justificativaFalta, turmaHorariosEad, situacao, valor }] }]
   salvarChamada(t, data, alunos) {
     return this.serial(async () => {

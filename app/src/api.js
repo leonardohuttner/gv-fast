@@ -25,6 +25,7 @@ export const api = {
   resumo: (cpt) => chamar('GET', `/api/turmas/${cpt}/resumo`),
   aulas: (sala) => chamar('GET', `/api/salas/${sala}/aulas`),
   chamada: (sala, data) => chamar('GET', `/api/salas/${sala}/chamada?data=${data}`),
+  faltasAluno: (sala, cpt, enturmacao) => chamar('GET', `/api/salas/${sala}/faltas?cpt=${cpt}&enturmacao=${enturmacao}`),
   observacoes: (sala, data) => chamar('GET', `/api/salas/${sala}/observacoes?data=${data ?? ''}`),
   salvarObservacao: (sala, cpt, data, texto) => chamar('PUT', `/api/salas/${sala}/observacoes`, { cpt, data, texto }),
   atualizarResultado: (sala) => chamar('POST', `/api/salas/${sala}/resultado`),

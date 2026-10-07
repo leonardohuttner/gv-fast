@@ -6,6 +6,7 @@ import Calendario from './Calendario.vue';
 import Caderno from './Caderno.vue';
 import Carregando from './Carregando.vue';
 import Conteudo from './Conteudo.vue';
+import FaltasAluno from './FaltasAluno.vue';
 
 const props = defineProps({ sala: { type: Object, required: true }, dataInicial: { type: String, default: null } });
 const emit = defineEmits(['expirou']);
@@ -54,6 +55,7 @@ const data = ref(null);
 const alunos = ref([]);
 const carregando = ref(false);
 const msg = ref(null);
+const verFaltas = ref(null); // aluno cujo histórico de faltas está aberto
 
 const periodos = computed(() => [...new Set(alunos.value.flatMap((a) => a.periodos.map((p) => p.periodo)))].sort((x, y) => x - y));
 // Só alunos cursando entram na chamada; desistentes/evadidos/etc. ficam visíveis mas travados
@@ -287,7 +289,7 @@ onMounted(() => executar(async () => {
               </td>
               <td class="c nowrap">
                 <template v-if="ativo(a) && situacaoFaltas(a)">
-                  <span class="faltas" :class="situacaoFaltas(a).nivel" :title="`Limite: ${andDe(a.cpt).limiteFaltas} h (25% da carga horária)`">{{ a.totalFaltas }} h</span>
+                  <button class="faltas" :class="situacaoFaltas(a).nivel" :title="`Ver dias e horas das faltas · limite: ${andDe(a.cpt).limiteFaltas} h (25% da carga horária)`" @click="verFaltas = a">{{ a.totalFaltas }} h</button>
                   <div class="sub resta">{{ situacaoFaltas(a).resta >= 0 ? `resta ${situacaoFaltas(a).resta} h` : 'acima do limite' }}</div>
                 </template>
               </td>
@@ -297,6 +299,7 @@ onMounted(() => executar(async () => {
         </table>
       </div>
     </template>
+    <FaltasAluno v-if="verFaltas" :sala="sala" :aluno="verFaltas" :limite="andDe(verFaltas.cpt)?.limiteFaltas ?? null" @fechar="verFaltas = null" @expirou="verFaltas = null; emit('expirou')" />
     <p v-if="motivosUsados.length" class="sub legenda-fj">Faltas justificadas: {{ motivosUsados.map((j) => `${j.legenda} = ${j.descricao}`).join(' · ') }}</p>
     <Conteudo v-if="data && programacao.length" :sala="sala" :data="data" :programacao="programacao" @salvo="(t) => (programacao = t)" @expirou="emit('expirou')" />
     </div>
@@ -337,7 +340,8 @@ tr.inativo .mk { opacity: .45; pointer-events: none; }
 .chip-f { padding: 2px 8px; border-radius: 10px; font-size: 12px; }
 .chip-f.perto { background: var(--warn-bg); color: var(--warn); }
 .chip-f.limite, .chip-f.acima { background: var(--err-bg); color: var(--err); font-weight: 700; }
-.faltas { font-weight: 700; padding: 1px 6px; border-radius: 6px; }
+.faltas { font-weight: 700; padding: 1px 6px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.faltas:hover { border-color: var(--border); }
 .faltas.perto { background: var(--warn-bg); color: var(--warn); }
 .faltas.limite, .faltas.acima { background: var(--err-bg); color: var(--err); }
 .resta { font-size: 11px; }

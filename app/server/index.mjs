@@ -15,6 +15,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEV = process.env.NODE_ENV !== 'production';
 
 let portal = new Portal();
+// Chamadas já lidas (cpt|data → linhas), para a lista de faltas do aluno. Só em memória.
+const chamadasLidas = new Map();
 
 const lerJson = (req) => new Promise((ok, erro) => {
   let b = '';
@@ -245,12 +247,13 @@ async function api(req, res, url) {
     const { cpf, senha } = await lerJson(req);
     if (!cpf || !senha) return enviar(res, 400, { erro: 'Informe CPF e senha.' });
     portal = new Portal();
+    chamadasLidas.clear();
     const info = await portal.login(cpf, senha);
     atualizarTudo();
     return enviar(res, 200, { ok: true, ...info });
   }
   if (rota === 'GET /api/sessao') return enviar(res, 200, { logado: portal.logado });
-  if (rota === 'POST /api/logout') { portal = new Portal(); return enviar(res, 200, { ok: true }); }
+  if (rota === 'POST /api/logout') { portal = new Portal(); chamadasLidas.clear(); return enviar(res, 200, { ok: true }); }
 
   if (!portal.logado) return enviar(res, 401, { erro: 'Faça login.' });
 
@@ -317,7 +320,7 @@ async function api(req, res, url) {
     return enviar(res, 200, resumir(await aulasDaTurma(t)));
   }
 
-  const m = url.pathname.match(/^\/api\/salas\/([\w-]+)\/(aulas|chamada|observacoes|resultado|avaliacoes|plano|notas|programacao)$/);
+  const m = url.pathname.match(/^\/api\/salas\/([\w-]+)\/(aulas|chamada|faltas|observacoes|resultado|avaliacoes|plano|notas|programacao)$/);
   const sala = m && await acharSala(m[1]);
   if (m && !sala) return enviar(res, 404, { erro: 'Sala não encontrada.' });
 
@@ -368,9 +371,29 @@ async function api(req, res, url) {
         if (esperado.has(k) && esperado.get(k) !== p.valor) divergencias.push({ turma: a.turma, nome: a.nome, periodo: p.periodo, marcado: esperado.get(k), gravado: p.valor });
         else if (motivoEsperado.has(k) && motivoEsperado.get(k) !== (Number(p.justificativaFalta) || null)) divergencias.push({ turma: a.turma, nome: a.nome, periodo: p.periodo, marcado: 3, gravado: 3, motivo: true });
       }
-      for (const t of sala.turmas) await aulasDaTurma(t, true); // atualiza agenda/calendário
+      for (const t of sala.turmas) { await aulasDaTurma(t, true); chamadasLidas.delete(`${t.cpt}|${data}`); } // atualiza agenda/calendário
       return enviar(res, 200, { enviados, divergencias, alunos: atual });
     }
+  }
+
+  // Dias em que o aluno teve falta, FJ ou atraso, hora a hora (lê a chamada de todos os dias já lançados da turma)
+  if (m && m[2] === 'faltas' && req.method === 'GET') {
+    const t = sala.turmas.find((x) => String(x.cpt) === url.searchParams.get('cpt'));
+    const enturmacao = url.searchParams.get('enturmacao');
+    if (!t || !enturmacao) return enviar(res, 400, { erro: 'Turma ou aluno inválido.' });
+    const aulas = (await aulasDaTurma(t)).filter((a) => a.data <= hoje() && a.periodos.some((p) => p.situacao === 1));
+    const faltando = aulas.map((a) => a.data).filter((d) => !chamadasLidas.has(`${t.cpt}|${d}`));
+    if (faltando.length) {
+      const lidas = await portal.lerChamadas(t, faltando);
+      for (const [d, alunos] of Object.entries(lidas)) chamadasLidas.set(`${t.cpt}|${d}`, linhas(t, alunos));
+    }
+    const dias = [];
+    for (const a of aulas) {
+      const aluno = chamadasLidas.get(`${t.cpt}|${a.data}`)?.find((x) => String(x.enturmacao) === String(enturmacao));
+      if (!aluno || !aluno.periodos.some((p) => [2, 3, 4].includes(p.valor))) continue;
+      dias.push({ data: a.data, turno: a.turno, periodos: aluno.periodos.map((p) => ({ periodo: p.periodo, valor: p.valor, justificativaFalta: p.justificativaFalta })) });
+    }
+    return enviar(res, 200, { dias, justificativas: await portal.justificativasFalta(t) });
   }
 
   // Caderno de observações (um texto por turma + módulo)
