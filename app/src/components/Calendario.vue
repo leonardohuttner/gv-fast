@@ -68,7 +68,7 @@ const contagem = computed(() => {
       </template>
     </div>
     <div class="leg sub">
-      <span><i class="pend" />pendente</span><span><i class="ok" />lançada</span><span><i class="canc" />cancelada</span><span v-if="marcas.length"><i class="ponto" />sem conteúdo</span>
+      <span><i class="pend" />pendente</span><span><i class="ok" />lançada</span><span><i class="canc" />cancelada</span><span v-if="marcas.length"><i class="ponto" />sem conteúdo (opcional)</span>
     </div>
   </div>
 </template>
@@ -92,8 +92,8 @@ const contagem = computed(() => {
 .dia.hoje { box-shadow: inset 0 -2px 0 var(--accent); }
 .dia.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dia { position: relative; }
-.dia.semconteudo::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
-.leg i.ponto { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); border: 0; }
+.dia.semconteudo::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.leg i.ponto { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); border: 0; }
 .leg { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
 .leg i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
 .leg i.pend { background: var(--warn-bg); border: 1px solid var(--warn); }

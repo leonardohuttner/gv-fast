@@ -99,6 +99,7 @@ Toda tela de turma (diário, avaliações, notas) usa a **última turma aberta**
 ### Programação de aulas (`programacao.php5`, mapeado — NADA gravado)
 - Depende da turma da sessão. JS: `js/programa.js` (+ `js/copiarPrograma.js` para "Copiar programação").
 - O GET embute um `PagePrincipal.addText(dataBR, 'AAAAMMDD', codigoProgramacao, 'AAAA-MM-DD 00:00:00', modulo, Base64.decode(programado), Base64.decode(realizado), editaProgramado, editaRealizado)` por dia, e `addDatasInicial(de, ate)`.
+- **Conteúdo de aula é OPCIONAL** (o professor pode ou não preencher); **o diário/chamada é obrigatório**. O app mostra conteúdo pendente só de forma discreta.
 - Regra observada: dia já dado → programado travado (0) e **realizado editável (1)**; dia futuro → programado editável (1) e realizado travado ("Aula não realizada").
 - Salvar (botão Salvar, junta o que mudou): `POST programacao.php5?useAjaxView=1` com `ViewProgramacaoAjax[method]=ajax_autoSavePrograma`, `debugReqId`,
   e por campo alterado `textProgramaAula[<campo>][campo|valor|codigo|data|modulo|tipo]` (campo = `p<AAAAMMDD>` programado / `r<AAAAMMDD>` realizado; valor = urlEncode(texto + ' '); tipo = `programa` | `realizado`),

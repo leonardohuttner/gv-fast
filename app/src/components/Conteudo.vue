@@ -50,10 +50,10 @@ async function salvar() {
 </script>
 
 <template>
-  <div v-if="dia && tipo" class="conteudo" :class="{ pendente: tipo === 'realizado' && !atual.trim() }">
+  <div v-if="dia && tipo" class="conteudo">
     <div class="cab">
       <strong>{{ tipo === 'realizado' ? 'Conteúdo realizado' : 'Conteúdo programado' }}</strong>
-      <span v-if="tipo === 'realizado' && !atual.trim()" class="aviso">sem registro no portal</span>
+      <span class="sub">opcional{{ tipo === 'realizado' && !atual.trim() ? ' · sem registro no portal' : '' }}</span>
       <span v-if="diferentes" class="sub">· diferente entre as turmas (mostrando {{ diasDoDia[0].turma }})</span>
       <span class="esp" />
       <button v-if="tipo === 'realizado' && dia.programado" class="mini" @click="usarProgramado" :disabled="salvando" title="Copiar o conteúdo programado (como o >>> do portal)">usar o programado</button>
@@ -70,10 +70,8 @@ async function salvar() {
 
 <style scoped>
 .conteudo { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
-.conteudo.pendente { border-color: var(--warn); }
 .cab { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
 .esp { flex: 1; }
-.aviso { font-size: 12px; color: var(--warn); font-weight: 700; }
 .mini { font-size: 12px; padding: 3px 8px; }
 .prog { margin: 0 0 6px; }
 textarea { width: 100%; resize: vertical; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--fg); font: 13px/1.5 system-ui, sans-serif; }
