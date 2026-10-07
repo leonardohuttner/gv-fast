@@ -133,7 +133,7 @@ export class Portal {
   }
 
   async login(cpf, senha) {
-    if (!/^\d+,\d+$/.test(UNIDADE())) throw new Error('Configure GV_UNIDADE no app/.env (ex.: GV_UNIDADE=1,10).');
+    if (!/^\d+,\d+$/.test(UNIDADE())) throw new Error('Unidade não configurada: defina GV_UNIDADE (ex.: 1,10) no app/.env ou no config.json do app.');
     this.jar.clear();
     this.logado = false;
     await this.#req(BASE + 'login.php5');

@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
-const ARQ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/salas.json');
+// pasta de dados: GV_DATA_DIR (app de desktop) ou app/data (desenvolvimento)
+const ARQ = path.join(process.env.GV_DATA_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data'), 'salas.json');
 
 // { salas, recusados, ocultas } — recusados = vínculos automáticos desfeitos; ocultas = turmas que não são do professor (ex.: substituição)
 let dados = null;

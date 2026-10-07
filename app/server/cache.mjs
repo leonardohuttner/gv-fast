@@ -4,7 +4,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ARQ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/cache.json');
+// pasta de dados: GV_DATA_DIR (app de desktop) ou app/data (desenvolvimento)
+const ARQ = path.join(process.env.GV_DATA_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data'), 'cache.json');
 
 let dados = null; // { turmas: { [ano]: Turma[] }, aulas: { [cpt]: Aula[] } }
 let timer = null;

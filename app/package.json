@@ -5,13 +5,47 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env server/index.mjs",
     "build": "vite build",
-    "start": "NODE_ENV=production node --env-file-if-exists=.env server/index.mjs"
-  },
-  "dependencies": {
-    "vue": "^3.5.43"
+    "start": "NODE_ENV=production node --env-file-if-exists=.env server/index.mjs",
+    "desktop": "vite build && node scripts/config-desktop.mjs && electron .",
+    "dist:mac": "vite build && node scripts/config-desktop.mjs && electron-builder --mac dmg --arm64",
+    "dist:win": "vite build && node scripts/config-desktop.mjs && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.9",
-    "vite": "^8.3.1"
+    "electron": "^44.6.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^8.3.1",
+    "vue": "^3.5.43"
+  },
+  "version": "1.0.0",
+  "description": "Client local para o Portal Professor (Senac RS)",
+  "main": "electron/main.mjs",
+  "build": {
+    "appId": "br.gvfast.app",
+    "productName": "GV Fast",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "server/**",
+      "electron/**",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.education",
+      "identity": null
+    },
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "GV Fast"
+    }
   }
 }
