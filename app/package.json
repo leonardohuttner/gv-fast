@@ -8,7 +8,8 @@
     "start": "NODE_ENV=production node --env-file-if-exists=.env server/index.mjs",
     "desktop": "vite build && node scripts/config-desktop.mjs && electron .",
     "dist:mac": "vite build && node scripts/config-desktop.mjs && electron-builder --mac dmg --arm64",
-    "dist:win": "vite build && node scripts/config-desktop.mjs && electron-builder --win nsis --x64"
+    "dist:win": "vite build && node scripts/config-desktop.mjs && electron-builder --win nsis --x64",
+    "versao": "node scripts/versao.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.9",

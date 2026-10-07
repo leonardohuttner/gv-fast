@@ -96,12 +96,13 @@ npm run desktop           # abre o app de desktop sem empacotar (teste rápido)
 #### Nova versão
 
 ```bash
-npm --prefix app version patch     # 1.0.0 → 1.0.1 (correções) · use "minor" para 1.1.0 (novidades)
+cd app
+npm run versao -- patch            # 1.0.0 → 1.0.1 (correções) · "minor" → 1.1.0 (novidades)
 git push --follow-tags             # envia o commit da versão e a tag vX.Y.Z
-cd app && npm run dist:mac && npm run dist:win
+npm run dist:mac && npm run dist:win
 ```
 
-`npm version` atualiza o `app/package.json`, faz o commit e cria a tag `vX.Y.Z`; o instalador sai com a versão no nome. Cada tag marca no GitHub o código que gerou aquela versão.
+`npm run versao` (em `app/scripts/versao.mjs`) exige o git limpo, sobe o número no `app/package.json`, faz o commit e cria a tag `vX.Y.Z` — o `npm version` puro não faz commit/tag porque o `package.json` não está na raiz do repositório. O instalador sai com a versão no nome, e cada tag marca no GitHub o código que gerou aquela versão.
 
 ---
 
