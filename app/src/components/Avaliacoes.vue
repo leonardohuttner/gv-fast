@@ -6,6 +6,7 @@ import { ref, computed, onMounted } from 'vue';
 import { api, NaoLogado } from '../api.js';
 import { confirmar } from '../dialogo.js';
 import Carregando from './Carregando.vue';
+import { mensagem } from '../aviso.js';
 
 const props = defineProps({ sala: { type: Object, required: true } });
 const emit = defineEmits(['expirou']);
@@ -14,7 +15,7 @@ const TIPOS = { Trabalho: 'tb', Prova: 'pv' };
 const turmas = ref([]);
 const novas = ref([]);
 const carregando = ref(false);
-const msg = ref(null);
+const msg = mensagem();
 let seq = 0;
 
 // Indicadores da sala (união das turmas), com as avaliações que já existem em cada turma

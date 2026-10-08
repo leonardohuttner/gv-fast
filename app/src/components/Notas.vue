@@ -6,6 +6,7 @@ import { ref, computed, onMounted } from 'vue';
 import { api, NaoLogado } from '../api.js';
 import { confirmar } from '../dialogo.js';
 import Carregando from './Carregando.vue';
+import { mensagem } from '../aviso.js';
 
 const props = defineProps({ sala: { type: Object, required: true } });
 const emit = defineEmits(['expirou']);
@@ -17,7 +18,7 @@ const COR = { A: 'a', NA: 'na', PA: 'pa', NC: 'na', D: 'a', ND: 'na', SM: 'pa' }
 const turmas = ref([]);
 const alunos = ref([]);
 const carregando = ref(false);
-const msg = ref(null);
+const msg = mensagem();
 
 // descrições do portal vêm com entidades HTML e espaços sobrando
 const limpar = (t) => String(t ?? '').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();

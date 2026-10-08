@@ -4,6 +4,7 @@
 import { ref, computed, watch } from 'vue';
 import { api, NaoLogado } from '../api.js';
 import { confirmar } from '../dialogo.js';
+import { mensagem } from '../aviso.js';
 
 const props = defineProps({
   sala: { type: Object, required: true },
@@ -14,7 +15,7 @@ const emit = defineEmits(['salvo', 'expirou']);
 
 const texto = ref('');
 const salvando = ref(false);
-const msg = ref(null);
+const msg = mensagem();
 
 const diasDoDia = computed(() => props.programacao.map((t) => ({ turma: t.turma, dia: t.dias.find((d) => d.data === props.data) })).filter((x) => x.dia));
 const dia = computed(() => diasDoDia.value[0]?.dia ?? null);

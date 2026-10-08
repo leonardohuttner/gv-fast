@@ -5,6 +5,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { api, NaoLogado } from '../api.js';
 import { confirmar } from '../dialogo.js';
 import Carregando from './Carregando.vue';
+import { mensagem } from '../aviso.js';
 
 const props = defineProps({ sala: { type: Object, required: true } });
 const emit = defineEmits(['expirou']);
@@ -16,7 +17,7 @@ const dados = ref(null);
 const modelo = ref(null);
 const textos = ref({});
 const carregando = ref(false);
-const msg = ref(null);
+const msg = mensagem();
 const fontes = ref([]);
 const fonte = ref('');
 const aba = ref(null);

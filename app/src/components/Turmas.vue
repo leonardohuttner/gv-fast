@@ -4,12 +4,13 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api, NaoLogado } from '../api.js';
 import { confirmar, perguntar } from '../dialogo.js';
 import Carregando from './Carregando.vue';
+import { mensagem } from '../aviso.js';
 
 const emit = defineEmits(['abrir', 'mudou', 'expirou']);
 
 const turmas = ref([]);
 const carregando = ref(false);
-const msg = ref(null);
+const msg = mensagem();
 const sel = ref(new Set());
 const ocultarEncerradas = ref(true);
 const inativa = (t) => ['Encerrada', 'Sem aulas'].includes(estado(t).txt);

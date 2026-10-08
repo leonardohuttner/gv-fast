@@ -7,6 +7,7 @@ import Caderno from './Caderno.vue';
 import Carregando from './Carregando.vue';
 import Conteudo from './Conteudo.vue';
 import FaltasAluno from './FaltasAluno.vue';
+import { mensagem } from '../aviso.js';
 
 const props = defineProps({ sala: { type: Object, required: true }, dataInicial: { type: String, default: null } });
 const emit = defineEmits(['expirou']);
@@ -54,7 +55,7 @@ const mostradores = computed(() => {
 const data = ref(null);
 const alunos = ref([]);
 const carregando = ref(false);
-const msg = ref(null);
+const msg = mensagem();
 const verFaltas = ref(null); // aluno cujo histórico de faltas está aberto
 
 const periodos = computed(() => [...new Set(alunos.value.flatMap((a) => a.periodos.map((p) => p.periodo)))].sort((x, y) => x - y));

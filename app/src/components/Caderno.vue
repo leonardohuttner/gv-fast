@@ -3,6 +3,7 @@
 import { ref, computed, watch } from 'vue';
 import { api, NaoLogado, SAIU } from '../api.js';
 import { confirmar } from '../dialogo.js';
+import { mensagem } from '../aviso.js';
 
 const props = defineProps({
   sala: { type: Object, required: true },
@@ -15,7 +16,7 @@ const obs = ref([]);
 const aba = ref(null);
 const texto = ref('');
 const carregando = ref(false);
-const msg = ref(null);
+const msg = mensagem();
 const area = ref(null);
 
 const atual = computed(() => obs.value.find((o) => o.cpt === aba.value));

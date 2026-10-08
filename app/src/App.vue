@@ -6,6 +6,7 @@ import Chamada from './components/Chamada.vue';
 import Turmas from './components/Turmas.vue';
 import Hoje from './components/Hoje.vue';
 import Dialogo from './components/Dialogo.vue';
+import Avisos from './components/Avisos.vue';
 import Avaliacoes from './components/Avaliacoes.vue';
 import Plano from './components/Plano.vue';
 import Notas from './components/Notas.vue';
@@ -80,6 +81,7 @@ onMounted(async () => {
 
 <template>
   <Dialogo />
+  <Avisos />
   <Login v-if="logado === false" @entrou="entrou" />
   <div v-else-if="logado" class="app">
     <header class="topo">
