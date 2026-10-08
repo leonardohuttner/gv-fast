@@ -1,7 +1,7 @@
 <script setup>
 // Caderno = "Digitar observação" do portal: um texto por turma e módulo (vale para a disciplina toda, não por dia).
 import { ref, computed, watch } from 'vue';
-import { api, NaoLogado } from '../api.js';
+import { api, NaoLogado, SAIU } from '../api.js';
 import { confirmar } from '../dialogo.js';
 
 const props = defineProps({
@@ -20,7 +20,7 @@ const area = ref(null);
 
 const atual = computed(() => obs.value.find((o) => o.cpt === aba.value));
 const sujo = computed(() => atual.value && texto.value !== atual.value.texto);
-const alunosDaAba = computed(() => props.alunos.filter((a) => String(a.cpt) === String(aba.value) && /CURSANDO/i.test(a.situacaoAluno || '')));
+const alunosDaAba = computed(() => props.alunos.filter((a) => String(a.cpt) === String(aba.value) && !SAIU.test(a.situacaoAluno || '')));
 const dataBr = computed(() => props.data ? props.data.split('-').reverse().slice(0, 2).join('/') : '');
 const ETIQUETAS = ['Atraso', 'Saiu cedo', 'Falta', 'Aviso', 'Alerta', 'Conteúdo', 'Atividade'];
 const aluno = ref('');

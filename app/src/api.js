@@ -1,4 +1,6 @@
 export class NaoLogado extends Error {}
+// Situações de quem saiu da turma (não entra na chamada nem no caderno)
+export const SAIU = /DESIST|EVAD|TRANC|CANCEL|TRANSF|ABANDON|JUBIL|FALEC|INATIV/i;
 
 async function chamar(metodo, url, corpo) {
   const r = await fetch(url, {

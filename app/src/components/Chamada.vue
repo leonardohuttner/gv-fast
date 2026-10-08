@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { api, NaoLogado } from '../api.js';
+import { api, NaoLogado, SAIU } from '../api.js';
 import { confirmar, escolher } from '../dialogo.js';
 import Calendario from './Calendario.vue';
 import Caderno from './Caderno.vue';
@@ -58,8 +58,8 @@ const msg = ref(null);
 const verFaltas = ref(null); // aluno cujo histórico de faltas está aberto
 
 const periodos = computed(() => [...new Set(alunos.value.flatMap((a) => a.periodos.map((p) => p.periodo)))].sort((x, y) => x - y));
-// Só alunos cursando entram na chamada; desistentes/evadidos/etc. ficam visíveis mas travados
-const ativo = (a) => a.pode && /CURSANDO/i.test(a.situacaoAluno || '');
+// Desistentes/evadidos/etc. ficam visíveis mas travados. Cursando, aprovado ou reprovado (resultado já calculado) seguem na chamada.
+const ativo = (a) => a.pode && !SAIU.test(a.situacaoAluno || '');
 const alterados = computed(() => alunos.value.filter((a) => ativo(a) && a.periodos.some((p) => p.valor !== p.original || (p.valor === 3 && p.justificativaFalta !== p.motivoOriginal))));
 
 // Falta justificada (FJ): cada hora leva um motivo (tipo de atestado), que pode ter restrição de sexo/idade
