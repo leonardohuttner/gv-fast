@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "gv-fast", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "app", "run", "dev"], "port": 5180 }
+    { "name": "gv-fast", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "[ -d app/node_modules/vite ] || npm --prefix app install --no-audit --no-fund; npm --prefix app run dev"], "port": 5180 }
   ]
 }
