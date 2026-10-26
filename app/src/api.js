@@ -17,6 +17,8 @@ async function chamar(metodo, url, corpo) {
 export const api = {
   sessao: () => chamar('GET', '/api/sessao'),
   login: (cpf, senha) => chamar('POST', '/api/login', { cpf, senha }),
+  janelaDisponivel: () => chamar('GET', '/api/login/janela'),
+  loginJanela: () => chamar('POST', '/api/login/janela'),
   logout: () => chamar('POST', '/api/logout'),
   agenda: () => chamar('GET', '/api/agenda'),
   salas: () => chamar('GET', '/api/salas'),

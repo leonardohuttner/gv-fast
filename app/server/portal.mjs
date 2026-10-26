@@ -10,6 +10,11 @@ const DB = 'PHOENIXHA/GVDASA_GVCOLLEGE';
 const UNIDADE = () => process.env.GV_UNIDADE || '';
 
 export class SessaoExpirada extends Error {}
+// O site passou a ter uma verificação anti-robô (Azion) na frente do portal: só uma pessoa resolve, numa janela do navegador
+export class VerificacaoHumana extends SessaoExpirada {
+  constructor() { super('O portal pediu a verificação de que você não é um robô. Use "Entrar pelo portal".'); }
+}
+const verificacao = (location) => /az-request-verify/i.test(location || '');
 
 // form_key = sha1(urlEncode(valores concatenados)) — igual a hashFormulario() do lib.js
 const urlEncode = (s) => escape(s)
@@ -88,6 +93,7 @@ function lerAulas(html) {
 export class Portal {
   jar = new Map();
   logado = false;
+  ua = UA;
   #fila = Promise.resolve();
 
   // A turma "atual" fica na sessão do portal → operações por turma rodam em série
@@ -99,7 +105,7 @@ export class Portal {
 
   // corpoCru: corpo já montado (string), enviado sem recodificar — usado onde o portal monta "nome=valor&" na mão
   async #req(url, { method = 'GET', form, corpoCru, ajax = false, referer } = {}) {
-    const headers = { 'User-Agent': UA, Cookie: [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ') };
+    const headers = { 'User-Agent': this.ua, Cookie: [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ') };
     // navegação de página: mesmos cabeçalhos de um navegador (o portal decide o formato da resposta pela "cara" do pedido)
     if (!ajax && method === 'GET') Object.assign(headers, { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'pt-BR,pt;q=0.9' });
     const multipart = form instanceof FormData;
@@ -108,6 +114,7 @@ export class Portal {
     if (method === 'POST') headers.Origin = ORIGEM;
     if (referer) headers.Referer = referer;
     const res = await fetch(url, { method, headers, body: corpoCru != null ? Buffer.from(corpoCru, 'latin1') : multipart ? form : form ? codificarForm(form) : undefined, redirect: 'manual' });
+    if (verificacao(res.headers.get('location'))) { this.logado = false; throw new VerificacaoHumana(); }
     for (const c of res.headers.getSetCookie()) {
       const kv = c.split(';')[0];
       const i = kv.indexOf('=');
@@ -159,14 +166,28 @@ export class Portal {
       const alerta = (r.text.match(/alert\(['"]([^'"]{3,200})['"]\)/) || [])[1];
       throw new Error(alerta || 'Login recusado pelo portal.');
     }
+    return this.#confirmarSessao();
+  }
+
+  async #confirmarSessao() {
     let idx;
     try { idx = await this.#req(BASE + 'index.php5'); } catch (e) {
+      if (e instanceof VerificacaoHumana) throw e;
       if (e instanceof SessaoExpirada) throw new Error('Portal não aceitou a sessão.');
       throw e;
     }
     if (/login\.php5/.test(idx.location || '') || idx.text.length < 2000) throw new Error('Portal não aceitou a sessão.');
     this.logado = true;
     return { nome: (idx.text.match(/class="[^"]*nomeUsuario[^"]*"[^>]*>([^<]+)/) || [])[1]?.trim() || null };
+  }
+
+  // Sessão aberta numa janela do portal (a pessoa resolveu a verificação e entrou lá): usa os mesmos cookies e navegador
+  async usarSessao(cookies, ua) {
+    this.jar.clear();
+    this.logado = false;
+    if (ua) this.ua = ua;
+    for (const c of cookies) this.jar.set(c.name, c.value);
+    return this.#confirmarSessao();
   }
 
   // Turmas do professor num ano (filtro da página inicial). Os dados vêm como GridIndex.addArray(...) no HTML.

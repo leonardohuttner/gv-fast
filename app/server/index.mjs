@@ -4,7 +4,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Portal, SessaoExpirada, paraLatin1 } from './portal.mjs';
+import { Portal, SessaoExpirada, VerificacaoHumana, paraLatin1 } from './portal.mjs';
 import { listarSalas, criarSala, removerSala, agruparAutomatico, listarOcultas, ocultarTurmas } from './salas.mjs';
 import { cache, gravarDepois } from './cache.mjs';
 import { visao, montar, chaveIndicador } from './avaliacoes.mjs';
@@ -248,7 +248,23 @@ async function api(req, res, url) {
     if (!cpf || !senha) return enviar(res, 400, { erro: 'Informe CPF e senha.' });
     portal = new Portal();
     chamadasLidas.clear();
-    const info = await portal.login(cpf, senha);
+    let info;
+    try { info = await portal.login(cpf, senha); } catch (e) {
+      if (e instanceof VerificacaoHumana) return enviar(res, 409, { erro: e.message, verificacao: true, janela: !!globalThis.gvJanelaPortal });
+      throw e;
+    }
+    atualizarTudo();
+    return enviar(res, 200, { ok: true, ...info });
+  }
+  // Login numa janela do próprio portal (só no app de desktop): a pessoa resolve a verificação anti-robô e entra lá
+  if (rota === 'GET /api/login/janela') return enviar(res, 200, { disponivel: !!globalThis.gvJanelaPortal });
+  if (rota === 'POST /api/login/janela') {
+    if (!globalThis.gvJanelaPortal) return enviar(res, 400, { erro: 'Disponível só no app de desktop.' });
+    const sessao = await globalThis.gvJanelaPortal();
+    if (!sessao) return enviar(res, 400, { erro: 'Janela do portal fechada antes de entrar.' });
+    portal = new Portal();
+    chamadasLidas.clear();
+    const info = await portal.usarSessao(sessao.cookies, sessao.ua);
     atualizarTudo();
     return enviar(res, 200, { ok: true, ...info });
   }
@@ -577,7 +593,7 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname.startsWith('/api/')) {
     try { await api(req, res, url); } catch (e) {
-      if (e instanceof SessaoExpirada) { portal.logado = false; return enviar(res, 401, { erro: 'Sessão do portal expirou. Entre de novo.' }); }
+      if (e instanceof SessaoExpirada) { portal.logado = false; return enviar(res, 401, { erro: e instanceof VerificacaoHumana ? e.message : 'Sessão do portal expirou. Entre de novo.' }); }
       console.error(`[api] ${req.method} ${url.pathname}: ${e.message}`);
       enviar(res, 502, { erro: e.message });
     }

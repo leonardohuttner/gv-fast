@@ -1,7 +1,7 @@
 // GV Fast — app de desktop (Electron).
 // Sobe o mesmo servidor local do GV Fast (modo produção, servindo dist/) numa porta livre
 // e abre uma janela apontando para ele. Dados locais ficam na pasta de dados do app no sistema.
-import { app, BrowserWindow, shell, dialog } from 'electron';
+import { app, BrowserWindow, shell, dialog, session } from 'electron';
 import net from 'node:net';
 import path from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -36,6 +36,37 @@ async function esperarServidor(url, ms = 20000) {
 }
 
 let janela = null;
+
+// Login pelo próprio portal: abre o site numa janela, a pessoa resolve a verificação anti-robô e entra.
+// Quando chega na página inicial do professor, a janela fecha e o GV Fast passa a usar os mesmos cookies e navegador.
+const PORTAL = 'https://apsweb.senacrs.com.br/modulos/professor/login.php5';
+let janelaPortal = null;
+function abrirJanelaPortal() {
+  if (janelaPortal) { janelaPortal.focus(); return janelaPortal.promessa; }
+  const ses = session.fromPartition('persist:portal'); // guarda a verificação entre aberturas
+  const ua = ses.getUserAgent().replace(/ (Electron|gv-fast|GV Fast)\/\S+/gi, '');
+  ses.setUserAgent(ua);
+  janelaPortal = new BrowserWindow({
+    width: 1100, height: 800, parent: janela ?? undefined, title: 'Portal do Professor — entre e volte ao GV Fast',
+    autoHideMenuBar: true, webPreferences: { session: ses, contextIsolation: true, sandbox: true },
+  });
+  janelaPortal.promessa = new Promise((ok) => {
+    let pronto = false;
+    const ver = async (_ev, url) => {
+      if (pronto || !/\/modulos\/professor\/index\.php5/i.test(url)) return;
+      pronto = true;
+      const cookies = (await ses.cookies.get({})).filter((c) => /senacrs\.com\.br$/i.test(c.domain.replace(/^\./, '')));
+      ok({ cookies: cookies.map((c) => ({ name: c.name, value: c.value })), ua });
+      janelaPortal?.close();
+    };
+    janelaPortal.webContents.on('did-navigate', ver);
+    janelaPortal.webContents.on('did-redirect-navigation', ver);
+    janelaPortal.on('closed', () => { janelaPortal = null; if (!pronto) ok(null); janela?.focus(); });
+  });
+  janelaPortal.loadURL(PORTAL);
+  return janelaPortal.promessa;
+}
+globalThis.gvJanelaPortal = abrirJanelaPortal;
 
 app.whenReady().then(async () => {
   try {
