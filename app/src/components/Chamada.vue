@@ -88,14 +88,13 @@ const pendente = computed(() => dia.value?.situacao === 0);
 const dataBr = computed(() => data.value?.split('-').reverse().join('/') ?? '');
 
 // Aula não realizada: o portal mostra "–" e ignora o que estiver guardado no banco (sobras/padrões).
-// Regra dele: se o DIA está não realizado, todos os períodos ficam "–" (mesmo que um período venha marcado).
-// Fazemos igual: começa vazio e o professor marca.
+// Fazemos igual, mas POR TURMA: numa sala dividida uma turma pode já estar lançada e a outra não —
+// a lançada mostra o que está gravado (e não é regravada); só a pendente começa vazia.
 function receber(lista) {
-  const diaPendente = dia.value?.situacao === 0;
   alunos.value = lista.map((a) => ({
     ...a,
     periodos: a.periodos.map((p) => {
-      const valor = diaPendente || String(p.situacao) === '0' ? null : p.valor;
+      const valor = String(p.situacao) === '0' ? null : p.valor;
       const just = valor === 3 ? (Number(p.justificativaFalta) || null) : null;
       return { ...p, valor, original: valor, justificativaFalta: just, motivoOriginal: just };
     }),
@@ -163,6 +162,10 @@ async function trocarMotivo(a, p) {
 }
 const definirLinha = (a, v) => { if (ativo(a)) a.periodos.forEach((p) => { p.valor = v; p.justificativaFalta = null; }); };
 const todosPresentes = () => alunos.value.forEach((a) => definirLinha(a, 1));
+// Aula pendente: marca presença só onde está vazio (não mexe no que outra turma da sala já tem gravado)
+const presentesNosVazios = () => alunos.value.forEach((a) => { if (ativo(a)) a.periodos.forEach((p) => { if (p.valor == null) { p.valor = 1; p.justificativaFalta = null; } }); });
+// turmas da sala que ainda estão com a aula pendente neste dia
+const turmasPendentes = computed(() => props.sala.turmas.filter((t) => alunos.value.some((a) => String(a.cpt) === String(t.cpt) && a.periodos.some((p) => String(p.situacao) === '0'))));
 const desfazer = () => alunos.value.forEach((a) => a.periodos.forEach((p) => (p.valor = p.original)));
 
 const salvar = async () => {
@@ -251,8 +254,9 @@ onMounted(() => executar(async () => {
 
     <template v-if="alunos.length && periodos.length">
       <div v-if="pendente && !alterados.length" class="aviso">
-        <span><strong>Aula ainda não realizada.</strong> Marque as presenças; ao salvar ela fica como realizada no portal.</span>
-        <button class="pri" @click="todosPresentes" :disabled="carregando">Aula realizada — todos presentes</button>
+        <span><strong>Aula ainda não realizada<template v-if="sala.turmas.length > 1 && turmasPendentes.length < sala.turmas.length"> em {{ turmasPendentes.map((t) => t.turma).join(', ') }}</template>.</strong>
+          Marque as presenças; ao salvar ela fica como realizada no portal.<template v-if="sala.turmas.length > 1 && turmasPendentes.length < sala.turmas.length"> A outra turma já está lançada e não é alterada.</template></span>
+        <button class="pri" @click="presentesNosVazios" :disabled="carregando">Aula realizada — todos presentes</button>
       </div>
       <div class="barra">
         <button @click="todosPresentes" :disabled="carregando">Todos presentes</button>
